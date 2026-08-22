@@ -77,6 +77,46 @@ export async function GET(request, { params }) {
       return json({ profile: profile || null });
     }
 
+    if (route === 'timeline') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      const events = [];
+      const firstLine = (t) => ((t || '').split('\n').map((l) => l.trim()).filter(Boolean)[0] || '').replace(/^[#*\s]+/, '').replace(/[*\s]+$/, '');
+
+      const profile = await database.collection('birth_profiles').findOne({ userId: user.id });
+      if (profile) {
+        events.push({ id: `profile-${profile.id}`, type: 'profile', icon: '\u2728', title: 'Your journey began', subtitle: `Birth profile created for ${profile.fullName}`, date: profile.createdAt });
+        if (profile.updatedAt && profile.updatedAt !== profile.createdAt) {
+          events.push({ id: `profile-upd-${profile.id}`, type: 'profile', icon: '\u270F\uFE0F', title: 'Birth details refined', subtitle: 'Your cosmic coordinates were updated', date: profile.updatedAt });
+        }
+      }
+
+      const narratives = await database.collection('narratives').find({ userId: user.id }, { projection: { _id: 0 } }).toArray();
+      narratives.forEach((n) => events.push({ id: `narrative-${n.id}`, type: 'synthesis', icon: '\uD83D\uDD2E', title: 'Soul story woven', subtitle: `\u201C${firstLine(n.text)}\u201D`, date: n.createdAt }));
+
+      const photos = await database.collection('photo_readings').find({ userId: user.id }, { projection: { _id: 0 } }).toArray();
+      const PN = { palm: 'Palm read', handwriting: 'Handwriting analyzed', face: 'Face read' };
+      const PI = { palm: '\uD83D\uDD90\uFE0F', handwriting: '\u270D\uFE0F', face: '\uD83C\uDFAD' };
+      photos.forEach((p) => events.push({ id: `photo-${p.id}`, type: 'photo', photoType: p.type, icon: PI[p.type] || '\uD83D\uDCF7', title: PN[p.type] || 'Photo reading', subtitle: `\u201C${firstLine(p.text)}\u201D`, date: p.createdAt }));
+
+      const partners = await database.collection('partners').find({ userId: user.id }, { projection: { _id: 0 } }).toArray();
+      partners.forEach((p) => events.push({ id: `partner-${p.id}`, type: 'partner', icon: '\uD83D\uDC9E', title: `Bond read: ${p.partnerName}`, subtitle: `${p.overall}/100 \u00b7 ${p.verdict}`, date: p.createdAt }));
+
+      const stories = await database.collection('bond_stories').find({ userId: user.id }, { projection: { _id: 0 } }).toArray();
+      stories.forEach((s) => events.push({ id: `story-${s.id}`, type: 'bondStory', icon: '\uD83D\uDC95', title: `Bond story told${s.partnerName ? ': ' + s.partnerName : ''}`, subtitle: `\u201C${firstLine(s.text)}\u201D`, date: s.createdAt }));
+
+      const oracleAgg = await database.collection('oracle_messages').aggregate([
+        { $match: { userId: user.id } },
+        { $group: { _id: null, first: { $min: '$createdAt' }, last: { $max: '$createdAt' }, count: { $sum: 1 } } },
+      ]).toArray();
+      if (oracleAgg[0]?.count) {
+        events.push({ id: 'oracle-first', type: 'oracle', icon: '\uD83D\uDCAC', title: 'First words with the Oracle', subtitle: `${oracleAgg[0].count} messages exchanged in the current thread`, date: oracleAgg[0].first });
+      }
+
+      events.sort((a, b2) => new Date(b2.date) - new Date(a.date));
+      return json({ events });
+    }
+
     if (route === 'photo-readings') {
       const user = await getAuthUser(request);
       if (!user) return json({ error: 'Unauthorized' }, 401);

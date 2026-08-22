@@ -426,6 +426,108 @@ print("   ✅ Skipping actual valid image POST to avoid LLM cost")
 tests_passed += 4
 
 # ============================================================================
+# Test D: Timeline API - GET /api/timeline
+# ============================================================================
+print("\n" + "="*80)
+print("Test D: Timeline API - GET /api/timeline")
+print("="*80)
+
+# Test D1: GET /api/timeline without token -> 401
+print("\nTest D1: GET /api/timeline without token")
+resp = requests.get(f"{API_URL}/timeline")
+test("D1.1: GET /api/timeline without token returns 401", resp.status_code == 401, f"Got {resp.status_code}")
+
+# Test D2: Login as luna and GET /api/timeline
+print("\nTest D2: GET /api/timeline as luna@zaura.app")
+luna_token = login(LUNA_EMAIL, LUNA_PASSWORD)
+if luna_token:
+    test("D2.1: Login as luna@zaura.app successful", True)
+    
+    resp = requests.get(f"{API_URL}/timeline", headers={"Authorization": f"Bearer {luna_token}"})
+    test("D2.2: GET /api/timeline with token returns 200", resp.status_code == 200, f"Got {resp.status_code}")
+    
+    if resp.status_code == 200:
+        data = resp.json()
+        test("D2.3: Response has 'events' key", 'events' in data, f"Keys: {list(data.keys())}")
+        
+        if 'events' in data:
+            events = data['events']
+            test("D2.4: Events is an array", isinstance(events, list), f"Got type: {type(events)}")
+            
+            # Check we have approximately 7 events (could be more if profile was updated)
+            test("D2.5: Events array has ~7 events (at least 6)", len(events) >= 6, f"Got {len(events)} events")
+            
+            # Check for no _id leakage in any event
+            has_id_leak = any('_id' in event for event in events)
+            test("D2.6: No _id leakage in events", not has_id_leak, "Found _id in events")
+            
+            # Check event structure and types
+            if len(events) > 0:
+                # Verify all events have required fields
+                required_fields = ['id', 'type', 'icon', 'title', 'subtitle', 'date']
+                all_have_fields = all(all(field in event for field in required_fields) for event in events)
+                test("D2.7: All events have required fields (id, type, icon, title, subtitle, date)", 
+                     all_have_fields, 
+                     f"Missing fields in some events")
+                
+                # Check for expected event types
+                event_types = [e['type'] for e in events]
+                has_profile = 'profile' in event_types
+                has_synthesis = 'synthesis' in event_types
+                has_photo = 'photo' in event_types
+                has_partner = 'partner' in event_types
+                has_bond_story = 'bondStory' in event_types
+                
+                test("D2.8: Has 'profile' event type", has_profile, f"Event types: {event_types}")
+                test("D2.9: Has 'synthesis' event type", has_synthesis, f"Event types: {event_types}")
+                test("D2.10: Has 'photo' event type", has_photo, f"Event types: {event_types}")
+                test("D2.11: Has 'partner' event type", has_partner, f"Event types: {event_types}")
+                test("D2.12: Has 'bondStory' event type", has_bond_story, f"Event types: {event_types}")
+                
+                # Count partner events (should be 2 for luna)
+                partner_count = event_types.count('partner')
+                test("D2.13: Has 2 'partner' events", partner_count == 2, f"Got {partner_count} partner events")
+                
+                # Check for photo types (palm and face)
+                photo_events = [e for e in events if e['type'] == 'photo']
+                photo_types = [e.get('photoType') for e in photo_events]
+                has_palm = 'palm' in photo_types
+                has_face = 'face' in photo_types
+                test("D2.14: Has 'palm' photo reading", has_palm, f"Photo types: {photo_types}")
+                test("D2.15: Has 'face' photo reading", has_face, f"Photo types: {photo_types}")
+                
+                # Verify date sorting (descending)
+                dates = [e['date'] for e in events]
+                dates_sorted = sorted(dates, reverse=True)
+                is_sorted = dates == dates_sorted
+                test("D2.16: Events sorted by date descending", is_sorted, f"Dates not in descending order")
+                
+                print(f"\n   Summary: Found {len(events)} events with types: {set(event_types)}")
+else:
+    print("❌ Failed to login as luna@zaura.app")
+    tests_failed += 16
+
+# Test D3: Register throwaway user (no profile) -> GET /api/timeline -> empty events
+print("\nTest D3: GET /api/timeline for new user without profile")
+throwaway_token, throwaway_email = register_throwaway()
+if throwaway_token:
+    test("D3.1: Register throwaway user successful", True)
+    
+    resp = requests.get(f"{API_URL}/timeline", headers={"Authorization": f"Bearer {throwaway_token}"})
+    test("D3.2: GET /api/timeline returns 200", resp.status_code == 200, f"Got {resp.status_code}")
+    
+    if resp.status_code == 200:
+        data = resp.json()
+        test("D3.3: Response has 'events' key", 'events' in data, f"Keys: {list(data.keys())}")
+        
+        if 'events' in data:
+            events = data['events']
+            test("D3.4: Events array is empty for new user", len(events) == 0, f"Got {len(events)} events")
+else:
+    print("❌ Failed to register throwaway user")
+    tests_failed += 4
+
+# ============================================================================
 # SUMMARY
 # ============================================================================
 print("\n" + "="*80)

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { computeAllModalities, cosmicProfileSummary, geocodeCity, CITIES, CATEGORIES, computeCompatibility, computeDailyReading } from '@/lib/zaura';
-import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart, Trash2, MessageCircle, Send, Zap, Camera, Upload, Share2 } from 'lucide-react';
+import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart, Trash2, MessageCircle, Send, Zap, Camera, Upload, Share2, History } from 'lucide-react';
 
 const API = '/api';
 const TOKEN_KEY = 'zaura_token';
@@ -734,6 +734,93 @@ const PhotoReadingView = ({ token, type, onBack }) => {
   );
 };
 
+// ---------------- READING TIMELINE ----------------
+const TYPE_COLORS = {
+  profile: 'border-amber-400/40 bg-amber-500/15',
+  synthesis: 'border-violet-400/40 bg-violet-500/15',
+  photo: 'border-rose-400/40 bg-rose-500/15',
+  partner: 'border-fuchsia-400/40 bg-fuchsia-500/15',
+  bondStory: 'border-pink-400/40 bg-pink-500/15',
+  oracle: 'border-sky-400/40 bg-sky-500/15',
+};
+
+const TimelineView = ({ token, profile, onBack }) => {
+  const [events, setEvents] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    apiCall('timeline', { token })
+      .then((d) => setEvents(d.events || []))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, [token]);
+
+  const fmt = (d) => new Date(d).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+  const fmtTime = (d) => new Date(d).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
+  return (
+    <div className="relative min-h-screen">
+      <Stars />
+      <header className="relative border-b border-white/5 bg-[#070616]/80 backdrop-blur-lg sticky top-0 z-20">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+          <button data-testid="timeline-back-btn" onClick={onBack} className="flex items-center gap-1.5 text-sm text-violet-200/70 hover:text-white transition-colors">
+            <ChevronLeft className="w-4 h-4" /> Dashboard
+          </button>
+          <span className="text-lg tracking-[0.2em]" style={{ fontFamily: 'var(--font-mystic)' }}>
+            <GradientText>ZAURA</GradientText>
+          </span>
+          <span className="w-24" />
+        </div>
+      </header>
+
+      <div className="relative max-w-3xl mx-auto px-4 sm:px-6 py-10">
+        <div className="text-center mb-10">
+          <History className="w-6 h-6 text-violet-300 mx-auto mb-2" />
+          <h1 className="text-4xl font-semibold mb-2" style={{ fontFamily: 'var(--font-mystic)' }}>
+            <GradientText>Your Journey</GradientText>
+          </h1>
+          <p className="text-sm text-violet-200/60">Every reading, story and bond &mdash; the unfolding record of {profile.fullName.split(' ')[0]}&rsquo;s path with Zaura</p>
+        </div>
+
+        {!loaded && (
+          <div className="text-center py-10"><Loader2 className="w-5 h-5 animate-spin text-violet-300 mx-auto" /></div>
+        )}
+
+        {loaded && events.length === 0 && (
+          <GlassCard className="p-10 text-center">
+            <p className="text-sm text-violet-200/60">Your journey is just beginning &mdash; explore a modality or ask the oracle to write your first chapter.</p>
+          </GlassCard>
+        )}
+
+        {loaded && events.length > 0 && (
+          <div className="relative pl-12" data-testid="timeline-list">
+            <div className="absolute left-[22px] top-2 bottom-2 w-px bg-gradient-to-b from-violet-400/50 via-fuchsia-400/25 to-transparent" />
+            <div className="space-y-5">
+              {events.map((e) => (
+                <div key={e.id} className="relative" data-testid={`timeline-event-${e.type}`}>
+                  <div className={`absolute -left-[34px] top-1 w-9 h-9 rounded-full border flex items-center justify-center text-base backdrop-blur ${TYPE_COLORS[e.type] || 'border-white/20 bg-white/10'}`}>
+                    {e.icon}
+                  </div>
+                  <GlassCard className="p-4 ml-2">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2 mb-0.5">
+                      <h3 className="text-sm font-medium text-violet-100/90" style={{ fontFamily: 'var(--font-mystic)' }}>{e.title}</h3>
+                      <span className="text-[10px] text-violet-200/40 whitespace-nowrap">{fmt(e.date)} &middot; {fmtTime(e.date)}</span>
+                    </div>
+                    <p className="text-xs text-violet-100/60 leading-relaxed italic">{e.subtitle}</p>
+                  </GlassCard>
+                </div>
+              ))}
+            </div>
+            <div className="relative mt-8 text-center">
+              <p className="text-xs text-violet-200/30">&#10038; the story continues &#10038;</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ---------------- ORACLE CHAT ----------------
 const OracleChat = ({ token, profile, onBack }) => {
   const [messages, setMessages] = useState([]);
@@ -1222,7 +1309,7 @@ const CompatibilityView = ({ profile, token, onBack }) => {
 };
 
 // ---------------- DASHBOARD ----------------
-const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, onLogout, onCompat, onOracle, onPhoto }) => {
+const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, onLogout, onCompat, onOracle, onPhoto, onTimeline }) => {
   const [filter, setFilter] = useState('All');
   const [pdfBusy, setPdfBusy] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
@@ -1244,12 +1331,17 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
     setPdfBusy(true);
     try {
       let narrativeText = null;
+      let photoReadings = [];
       try {
         const d = await apiCall('synthesis', { token });
         narrativeText = d.narrative?.text || null;
       } catch {}
+      try {
+        const pr = await apiCall('photo-readings', { token });
+        photoReadings = pr.readings || [];
+      } catch {}
       const { generateKeepsakePdf } = await import('@/lib/pdf');
-      await generateKeepsakePdf({ profile, modalities, summary, narrativeText });
+      await generateKeepsakePdf({ profile, modalities, summary, narrativeText, photoReadings });
     } catch (e) {
       console.error('PDF generation failed:', e);
     } finally {
@@ -1340,6 +1432,13 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
                 className="flex items-center gap-2 rounded-xl border border-sky-400/25 bg-sky-500/10 hover:bg-sky-500/20 px-4 py-2.5 text-sm text-sky-100/90 transition-colors disabled:opacity-50"
               >
                 {shareBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />} Share Card
+              </button>
+              <button
+                data-testid="timeline-btn"
+                onClick={onTimeline}
+                className="flex items-center gap-2 rounded-xl border border-emerald-400/25 bg-emerald-500/10 hover:bg-emerald-500/20 px-4 py-2.5 text-sm text-emerald-100/90 transition-colors"
+              >
+                <History className="w-4 h-4" /> My Journey
               </button>
             </div>
           </GlassCard>
@@ -1548,6 +1647,9 @@ const App = () => {
   if (view === 'detail' && profile) {
     return <DetailView modalities={modalities} activeId={activeModality} onSelect={setActiveModality} onBack={() => setView('dashboard')} />;
   }
+  if (view === 'timeline' && profile) {
+    return <TimelineView token={token} profile={profile} onBack={() => setView('dashboard')} />;
+  }
   if (view === 'photo' && profile && photoType) {
     return <PhotoReadingView token={token} type={photoType} onBack={() => setView('dashboard')} />;
   }
@@ -1571,6 +1673,7 @@ const App = () => {
         onCompat={() => setView('compat')}
         onOracle={() => setView('oracle')}
         onPhoto={(t) => { setPhotoType(t); setView('photo'); }}
+        onTimeline={() => setView('timeline')}
       />
     );
   }

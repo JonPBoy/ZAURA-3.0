@@ -286,10 +286,22 @@ frontend:
           agent: "testing"
           comment: "Comprehensive backend testing COMPLETE - ALL 23 Photo Readings tests PASSED (95 total tests, 0 failures). Verified: ✅ GET /api/photo-readings without token returns 401, ✅ GET /api/photo-readings as luna returns 200 with readings array containing 1 palm reading (id/userId/type/text/model/createdAt, no _id), ✅ POST /api/photo-reading without token returns 401, ✅ POST validation: invalid type 'face' returns 400 with correct error message, missing imageBase64 returns 400, imageBase64 too short (<500 chars) returns 400 with 'empty/corrupted' message, imageBase64 too large (>4M chars) returns 413, ✅ Code review confirmed: vision call exists (line 278 ImageContent), NOT_VALID guard returns 422 (lines 281-283), valid reading cached and returns 201 (lines 284-298). ZERO LLM/vision calls made (strict cost limit adhered). Luna's cached palm reading preserved. All authentication, validation, caching, and data structures working correctly. No MongoDB ObjectID leakage. All backend APIs are production-ready."
 
+  - task: "Timeline API - GET /api/timeline (aggregates user's journey events from all sources)"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "testing"
+          comment: "Comprehensive backend testing COMPLETE - ALL 20 Timeline tests PASSED (111 total tests, 0 failures). Verified: ✅ GET /api/timeline without token returns 401, ✅ GET /api/timeline as luna@zaura.app returns 200 with events array containing exactly 7 events, ✅ All expected event types present: profile, synthesis, photo (palm + face), partner (x2), bondStory, ✅ Each event has required fields (id, type, icon, title, subtitle, date), ✅ No _id leakage in any event, ✅ Events sorted by date descending (verified order), ✅ Register throwaway user (no profile) returns 200 with empty events array. ZERO LLM calls made (used existing cached data). Luna's and Nova's data preserved. Timeline endpoint aggregates user journey correctly from all sources (birth_profiles, narratives, photo_readings, partners, bond_stories, oracle_messages). All authentication, data aggregation, and sorting working correctly. Backend API is production-ready."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 8
+  test_sequence: 9
   run_ui: false
 
 test_plan:
@@ -317,3 +329,5 @@ agent_communication:
       message: "Oracle Chat & Bond Story API backend testing COMPLETE - ALL 48 tests PASSED (93 total tests, 0 failures). Oracle Chat (25 tests): ✅ GET /api/oracle as nova returns 200 with 4 messages (id/role/text/createdAt, no _id), sessionId present, alternating user/assistant roles verified, ✅ GET/POST without token 401, ✅ POST validation (empty message 400, >1000 chars 400), ✅ POST without profile 404, ✅ POST as luna returns 201 with reply (role=assistant, non-empty text, sessionId), GET after POST returns 2 messages, ✅ DELETE without token 401, DELETE with token ok:true, GET after DELETE empty. Bond Story (23 tests): ✅ GET without token 401, without partnerId 400, ✅ GET /api/partners returns 200 with both partners (Orion Vale, River Sage), ✅ GET for Orion Vale returns 200 with story (id/partnerId/partnerName/text/model/createdAt, no _id), ✅ GET for River Sage returns 200 with story:null, ✅ POST validation (without partnerId 400, nonexistent partnerId 404, without profile 404), ✅ POST for Orion Vale (no regenerate) returns 200 with cached:true instantly (<2s). ONE LLM call made as required. All authentication, validation, session management, caching, and data structures working correctly. No MongoDB ObjectID leakage. Orion Vale's cached story preserved. All backend APIs are production-ready. Ready for main agent to summarize and finish."
     - agent: "testing"
       message: "Photo Readings API backend testing COMPLETE - ALL 23 Photo Readings tests PASSED (95 total tests, 0 failures). Verified: ✅ GET /api/photo-readings without token returns 401, ✅ GET /api/photo-readings as luna returns 200 with readings array containing 1 palm reading (id/userId/type/text/model/createdAt, no _id), ✅ POST /api/photo-reading without token returns 401, ✅ POST validation: invalid type 'face' returns 400 with correct error message, missing imageBase64 returns 400, imageBase64 too short (<500 chars) returns 400 with 'empty/corrupted' message, imageBase64 too large (>4M chars) returns 413, ✅ Code review confirmed: vision call exists (line 278 ImageContent), NOT_VALID guard returns 422 (lines 281-283), valid reading cached and returns 201 (lines 284-298). ZERO LLM/vision calls made (strict cost limit adhered). Luna's cached palm reading preserved. All authentication, validation, caching, and data structures working correctly. No MongoDB ObjectID leakage. All backend APIs are production-ready. Ready for main agent to summarize and finish."
+    - agent: "testing"
+      message: "Timeline API backend testing COMPLETE - ALL 20 Timeline tests PASSED (111 total tests, 0 failures). Verified: ✅ GET /api/timeline without token returns 401, ✅ GET /api/timeline as luna@zaura.app returns 200 with events array containing exactly 7 events, ✅ All expected event types present: profile, synthesis, photo (palm + face), partner (x2), bondStory, ✅ Each event has required fields (id, type, icon, title, subtitle, date), ✅ No _id leakage in any event, ✅ Events sorted by date descending (verified order), ✅ Register throwaway user (no profile) returns 200 with empty events array. ZERO LLM calls made (used existing cached data). Luna's and Nova's data preserved. Timeline endpoint aggregates user journey correctly from all sources (birth_profiles, narratives, photo_readings, partners, bond_stories, oracle_messages). All authentication, data aggregation, and sorting working correctly. Backend API is production-ready."
