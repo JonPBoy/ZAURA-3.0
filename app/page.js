@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { computeAllModalities, cosmicProfileSummary, geocodeCity, CITIES, CATEGORIES, computeCompatibility, computeDailyReading } from '@/lib/zaura';
-import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart, Trash2 } from 'lucide-react';
+import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart, Trash2, MessageCircle, Send, Zap } from 'lucide-react';
 
 const API = '/api';
 const TOKEN_KEY = 'zaura_token';
@@ -426,12 +426,50 @@ const SoulSynthesis = ({ token }) => {
   );
 };
 
-// ---------------- DAILY COSMIC READING ----------------
+// ---------------- DAILY COSMIC READING + POWER DAY ----------------
+const POWER_DAYS = [1, 8];
+
+const PowerDayBanner = ({ daily }) => {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!daily || !POWER_DAYS.includes(daily.personalDay)) return;
+    const key = 'zaura_powerday_seen';
+    const today = new Date().toDateString();
+    if (typeof window !== 'undefined' && localStorage.getItem(key) !== today) setVisible(true);
+  }, [daily]);
+  if (!visible || !daily) return null;
+  const dismiss = () => {
+    localStorage.setItem('zaura_powerday_seen', new Date().toDateString());
+    setVisible(false);
+  };
+  return (
+    <div data-testid="power-day-banner" className="relative mb-6 rounded-2xl border border-amber-400/40 bg-gradient-to-r from-amber-500/15 via-fuchsia-500/10 to-violet-500/15 p-4 sm:p-5 shadow-[0_0_40px_rgba(240,200,120,0.12)]">
+      <div className="flex items-start gap-3 pr-8">
+        <Zap className="w-5 h-5 text-amber-300 mt-0.5 shrink-0" />
+        <div>
+          <p className="text-sm font-medium text-amber-100">
+            {daily.personalDay === 1 ? 'Power Day \u2014 a new cycle opens for you today' : 'Power Day \u2014 the gates of manifestation stand open'}
+          </p>
+          <p className="text-xs text-violet-100/70 mt-0.5">
+            Your Personal Day shifted to {daily.personalDay} &middot; {daily.themeName}. {daily.themeText}
+          </p>
+        </div>
+      </div>
+      <button data-testid="power-day-dismiss" onClick={dismiss} className="absolute top-3 right-3 text-amber-200/50 hover:text-amber-100 transition-colors">
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+};
+
 const DailyReading = ({ profile }) => {
   const [daily, setDaily] = useState(null);
   useEffect(() => { setDaily(computeDailyReading(profile)); }, [profile]);
   if (!daily) return null;
+  const isPower = POWER_DAYS.includes(daily.personalDay);
   return (
+    <>
+    <PowerDayBanner daily={daily} />
     <GlassCard className="p-5 sm:p-6 mb-6" data-testid="daily-reading-card">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <h2 className="text-xl font-semibold flex items-center gap-2" style={{ fontFamily: 'var(--font-mystic)' }}>
@@ -441,10 +479,11 @@ const DailyReading = ({ profile }) => {
         <span className="text-xs text-violet-200/40">{daily.dateLabel}</span>
       </div>
       <div className="grid sm:grid-cols-3 gap-3">
-        <div className="rounded-xl border border-amber-400/15 bg-amber-500/[0.06] p-4" data-testid="daily-personal-day">
+        <div className={`rounded-xl border p-4 ${isPower ? 'border-amber-400/50 bg-amber-500/[0.12] shadow-[0_0_24px_rgba(240,200,120,0.15)]' : 'border-amber-400/15 bg-amber-500/[0.06]'}`} data-testid="daily-personal-day">
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-2xl font-semibold text-amber-100/90">{daily.personalDay}</span>
             <span className="text-xs uppercase tracking-widest text-violet-200/40">Personal Day &middot; {daily.themeName}</span>
+            {isPower && <Zap className="w-3.5 h-3.5 text-amber-300" />}
           </div>
           <p className="text-xs text-violet-100/60 leading-relaxed">{daily.themeText}</p>
         </div>
@@ -463,6 +502,263 @@ const DailyReading = ({ profile }) => {
           <p className="text-xs text-violet-100/60 leading-relaxed">A day of {daily.rulerText}.</p>
         </div>
       </div>
+    </GlassCard>
+    </>
+  );
+};
+
+// ---------------- ORACLE CHAT ----------------
+const OracleChat = ({ token, profile, onBack }) => {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const bottomRef = React.useRef(null);
+
+  useEffect(() => {
+    apiCall('oracle', { token })
+      .then((d) => setMessages(d.messages || []))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, [token]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, busy]);
+
+  const send = async (e) => {
+    e?.preventDefault();
+    const text = input.trim();
+    if (!text || busy) return;
+    setError('');
+    setInput('');
+    setMessages((m) => [...m, { id: `tmp-${Date.now()}`, role: 'user', text }]);
+    setBusy(true);
+    try {
+      const d = await apiCall('oracle', { method: 'POST', token, body: { message: text } });
+      setMessages((m) => [...m, d.reply]);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clearChat = async () => {
+    try { await apiCall('oracle', { method: 'DELETE', token }); setMessages([]); setError(''); } catch {}
+  };
+
+  const SUGGESTIONS = [
+    'What is my greatest hidden strength?',
+    'How do my Sun and Moon signs work together?',
+    'What should I focus on this year?',
+    'What does my Human Design type mean for my work?',
+  ];
+
+  return (
+    <div className="relative min-h-screen flex flex-col">
+      <Stars />
+      <header className="relative border-b border-white/5 bg-[#070616]/80 backdrop-blur-lg sticky top-0 z-20">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+          <button data-testid="oracle-back-btn" onClick={onBack} className="flex items-center gap-1.5 text-sm text-violet-200/70 hover:text-white transition-colors">
+            <ChevronLeft className="w-4 h-4" /> Dashboard
+          </button>
+          <div className="text-center">
+            <span className="text-lg tracking-[0.2em] block" style={{ fontFamily: 'var(--font-mystic)' }}>
+              <GradientText>THE ORACLE</GradientText>
+            </span>
+          </div>
+          <button data-testid="oracle-clear-btn" onClick={clearChat} className="text-xs text-violet-200/50 hover:text-rose-200 transition-colors rounded-lg border border-white/10 px-3 py-1.5">
+            New thread
+          </button>
+        </div>
+      </header>
+
+      <div className="relative flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 py-6 flex flex-col">
+        <div className="flex-1 space-y-4 pb-4" data-testid="oracle-messages">
+          {loaded && messages.length === 0 && (
+            <div className="text-center py-10">
+              <span className="text-4xl block mb-3">&#128302;</span>
+              <p className="text-sm text-violet-100/70 mb-1" style={{ fontFamily: 'var(--font-mystic)' }}>The Oracle knows your twenty readings, {profile.fullName.split(' ')[0]}.</p>
+              <p className="text-xs text-violet-200/40 mb-6">Ask anything about your cosmic profile.</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                {SUGGESTIONS.map((s) => (
+                  <button key={s} onClick={() => setInput(s)} className="text-xs rounded-full border border-violet-400/25 bg-violet-500/10 hover:bg-violet-500/20 px-3 py-1.5 text-violet-100/70 transition-colors">
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {messages.map((m) => (
+            <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${m.role === 'user' ? 'bg-violet-600/40 border border-violet-400/20 text-violet-50' : 'bg-white/[0.05] border border-white/10 text-violet-100/85'}`}>
+                {m.role === 'assistant' && <span className="text-xs text-amber-200/70 block mb-1" style={{ fontFamily: 'var(--font-mystic)' }}>Zaura</span>}
+                {m.text.split('\n').filter(Boolean).map((p, i) => <p key={i} className={i > 0 ? 'mt-2' : ''}>{p}</p>)}
+              </div>
+            </div>
+          ))}
+          {busy && (
+            <div className="flex justify-start" data-testid="oracle-thinking">
+              <div className="rounded-2xl px-4 py-3 bg-white/[0.05] border border-white/10 text-sm text-violet-200/50 italic flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> The oracle gazes into your chart...
+              </div>
+            </div>
+          )}
+          {error && <p data-testid="oracle-error" className="text-center text-sm text-rose-300/90">{error}</p>}
+          <div ref={bottomRef} />
+        </div>
+
+        <form onSubmit={send} className="sticky bottom-4 flex gap-2">
+          <input
+            data-testid="oracle-input"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask the oracle about your readings..."
+            maxLength={1000}
+            className="flex-1 rounded-xl bg-[#0d0a24]/90 backdrop-blur-lg border border-white/15 px-4 py-3 text-sm placeholder:text-violet-200/30 focus:outline-none focus:border-violet-400/50"
+          />
+          <button
+            data-testid="oracle-send-btn"
+            disabled={busy || !input.trim()}
+            className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 px-4 py-3 transition-colors disabled:opacity-40"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ---------------- AI BOND STORY ----------------
+const BondStory = ({ token, partnerId }) => {
+  const [story, setStory] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setStory(null); setError('');
+    if (!partnerId) return;
+    apiCall(`bond-story?partnerId=${partnerId}`, { token }).then((d) => setStory(d.story)).catch(() => {});
+  }, [partnerId, token]);
+
+  if (!partnerId) return null;
+
+  const generate = async (regenerate = false) => {
+    setBusy(true); setError('');
+    try {
+      const d = await apiCall('bond-story', { method: 'POST', token, body: { partnerId, regenerate } });
+      setStory(d.story);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const lines = story?.text ? story.text.split('\n').map((l) => l.trim()).filter(Boolean) : [];
+  const title = (lines[0] || '').replace(/^[#*\s]+/, '').replace(/[*\s]+$/, '');
+  const paras = lines.slice(1).map((p) => p.replace(/\*\*/g, ''));
+
+  return (
+    <GlassCard className="p-6 sm:p-8 mt-6" data-testid="bond-story-card">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <h3 className="text-xl font-semibold flex items-center gap-2" style={{ fontFamily: 'var(--font-mystic)' }}>
+          <span>&#128149;</span> <GradientText>AI Bond Story</GradientText>
+        </h3>
+        {story && !busy && (
+          <button data-testid="bond-story-regenerate" onClick={() => generate(true)} className="text-xs rounded-lg border border-white/10 px-3 py-1.5 text-violet-200/60 hover:text-violet-100 hover:border-violet-400/40 transition-colors">
+            Retell
+          </button>
+        )}
+      </div>
+      {busy && (
+        <div className="py-8 text-center" data-testid="bond-story-loading">
+          <Loader2 className="w-5 h-5 animate-spin text-violet-300 mx-auto mb-2" />
+          <p className="text-sm text-violet-200/60 italic">The oracle is reading the space between your two charts...</p>
+        </div>
+      )}
+      {!busy && story && (
+        <div data-testid="bond-story-text">
+          <h4 className="text-lg text-amber-100/90 mb-3 italic" style={{ fontFamily: 'var(--font-mystic)' }}>{title}</h4>
+          <div className="space-y-3 text-sm leading-relaxed text-violet-100/80">
+            {paras.map((p, i) => <p key={i}>{p}</p>)}
+          </div>
+        </div>
+      )}
+      {!busy && !story && (
+        <div className="text-center py-4">
+          <p className="text-sm text-violet-100/60 mb-4">Let the oracle tell the myth of these two souls \u2014 their harmonies, frictions, and the practice that tends the bond.</p>
+          <button data-testid="bond-story-generate" onClick={() => generate(false)} className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 px-5 py-2.5 text-sm font-medium transition-colors inline-flex items-center gap-2">
+            <Sparkles className="w-4 h-4" /> Tell Our Story
+          </button>
+        </div>
+      )}
+      {error && <p data-testid="bond-story-error" className="mt-3 text-sm text-rose-300/90 text-center">{error}</p>}
+    </GlassCard>
+  );
+};
+
+// ---------------- BOND COMPARISON ----------------
+const BondComparison = ({ profile, partners }) => {
+  const rows = useMemo(() => partners.map((p) => {
+    try {
+      return { p, r: computeCompatibility(profile, { fullName: p.partnerName, birthDate: p.birthDate, birthTime: p.birthTime }) };
+    } catch { return null; }
+  }).filter(Boolean).sort((x, y2) => y2.r.overall - x.r.overall), [profile, partners]);
+
+  if (rows.length < 2) return null;
+  const cols = rows[0].r.aspects;
+  const best = rows[0].r.overall;
+
+  return (
+    <GlassCard className="p-5 sm:p-6 mb-8" data-testid="bond-comparison">
+      <h3 className="text-xl font-semibold mb-1" style={{ fontFamily: 'var(--font-mystic)' }}>
+        <GradientText>Compare Your Bonds</GradientText>
+      </h3>
+      <p className="text-xs text-violet-200/40 mb-4">All saved bonds, side by side across the six systems</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[560px]">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-widest text-violet-200/40">
+              <th className="text-left font-normal pb-2 pr-3">Bond</th>
+              <th className="text-center font-normal pb-2 px-2">Overall</th>
+              {cols.map((c) => (
+                <th key={c.id} className="text-center font-normal pb-2 px-1" title={c.name}>
+                  <span className="text-sm">{c.icon}</span>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ p, r }) => (
+              <tr key={p.id} className="border-t border-white/5" data-testid={`compare-row-${p.id}`}>
+                <td className="py-2.5 pr-3">
+                  <span className="text-violet-100/85">{p.partnerName}</span>
+                  {r.overall === best && <span className="ml-2 text-[9px] uppercase tracking-widest text-amber-200/70 border border-amber-400/25 rounded-full px-1.5 py-0.5">strongest</span>}
+                </td>
+                <td className="text-center px-2">
+                  <span className={`inline-block min-w-[2.5rem] rounded-lg px-2 py-1 text-sm font-medium ${r.overall === best ? 'bg-amber-500/20 text-amber-100' : 'bg-white/[0.05] text-violet-100/80'}`}>{r.overall}</span>
+                </td>
+                {r.aspects.map((a) => (
+                  <td key={a.id} className="text-center px-1 py-2.5">
+                    <span
+                      className="inline-block min-w-[2.2rem] rounded-md px-1.5 py-1 text-xs"
+                      style={{ backgroundColor: `rgba(167,139,250,${(a.score / 100) * 0.38})`, color: a.score >= 75 ? '#fde9b8' : 'rgba(220,214,245,0.75)' }}
+                      title={`${a.name}: ${a.score}`}
+                    >
+                      {a.score}
+                    </span>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[10px] text-violet-200/30 mt-3">{cols.map((c) => `${c.icon} ${c.name}`).join('  \u00b7  ')}</p>
     </GlassCard>
   );
 };
@@ -499,14 +795,16 @@ const CompatibilityView = ({ profile, token, onBack }) => {
   const [error, setError] = useState('');
   const [partners, setPartners] = useState([]);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [currentPartnerId, setCurrentPartnerId] = useState(null);
 
   const loadPartners = useCallback(() => {
     apiCall('partners', { token }).then((d) => setPartners(d.partners || [])).catch(() => {});
   }, [token]);
   useEffect(() => { loadPartners(); }, [loadPartners]);
 
-  const runReading = (name, date, time, save = true) => {
+  const runReading = (name, date, time, save = true, knownId = null) => {
     setError('');
+    setCurrentPartnerId(knownId);
     try {
       const partner = { fullName: name.trim(), birthDate: date, birthTime: time || null };
       const rep = computeCompatibility(profile, partner);
@@ -515,7 +813,7 @@ const CompatibilityView = ({ profile, token, onBack }) => {
         apiCall('partners', {
           method: 'POST', token,
           body: { partnerName: name.trim(), birthDate: date, birthTime: time || null, overall: rep.overall, verdict: rep.verdict },
-        }).then(loadPartners).catch(() => {});
+        }).then((d) => { setCurrentPartnerId(d.partner?.id || null); loadPartners(); }).catch(() => {});
       }
     } catch {
       setError('Could not compute the reading \u2014 check the birth date.');
@@ -530,7 +828,7 @@ const CompatibilityView = ({ profile, token, onBack }) => {
 
   const openSaved = (p) => {
     setPName(p.partnerName); setPDate(p.birthDate); setPTime(p.birthTime || '');
-    runReading(p.partnerName, p.birthDate, p.birthTime, false);
+    runReading(p.partnerName, p.birthDate, p.birthTime, false, p.id);
   };
 
   const removeSaved = async (e, p) => {
@@ -629,6 +927,8 @@ const CompatibilityView = ({ profile, token, onBack }) => {
           </div>
         )}
 
+        <BondComparison profile={profile} partners={partners} />
+
         {report && (
           <div data-testid="compat-report">
             <GlassCard className="p-8 mb-6 text-center relative">
@@ -678,6 +978,7 @@ const CompatibilityView = ({ profile, token, onBack }) => {
                 </GlassCard>
               ))}
             </div>
+            <BondStory token={token} partnerId={currentPartnerId} />
             <p className="text-center text-xs text-violet-200/30 mt-8">For reflection, not prediction &mdash; every bond is ultimately written by its keepers. &#10024;</p>
           </div>
         )}
@@ -687,7 +988,7 @@ const CompatibilityView = ({ profile, token, onBack }) => {
 };
 
 // ---------------- DASHBOARD ----------------
-const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, onLogout, onCompat }) => {
+const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, onLogout, onCompat, onOracle }) => {
   const [filter, setFilter] = useState('All');
   const [pdfBusy, setPdfBusy] = useState(false);
   const shown = filter === 'All' ? modalities : modalities.filter((m) => m.category === filter);
@@ -777,6 +1078,13 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
                 className="flex items-center gap-2 rounded-xl border border-fuchsia-400/25 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 px-4 py-2.5 text-sm text-fuchsia-100/90 transition-colors"
               >
                 <Heart className="w-4 h-4" /> Compatibility Reading
+              </button>
+              <button
+                data-testid="oracle-btn"
+                onClick={onOracle}
+                className="flex items-center gap-2 rounded-xl border border-violet-400/25 bg-violet-500/10 hover:bg-violet-500/20 px-4 py-2.5 text-sm text-violet-100/90 transition-colors"
+              >
+                <MessageCircle className="w-4 h-4" /> Ask the Oracle
               </button>
             </div>
           </GlassCard>
@@ -968,6 +1276,9 @@ const App = () => {
   if (view === 'detail' && profile) {
     return <DetailView modalities={modalities} activeId={activeModality} onSelect={setActiveModality} onBack={() => setView('dashboard')} />;
   }
+  if (view === 'oracle' && profile) {
+    return <OracleChat token={token} profile={profile} onBack={() => setView('dashboard')} />;
+  }
   if (view === 'compat' && profile) {
     return <CompatibilityView profile={profile} token={token} onBack={() => setView('dashboard')} />;
   }
@@ -983,6 +1294,7 @@ const App = () => {
         onEdit={() => setView('birth')}
         onLogout={handleLogout}
         onCompat={() => setView('compat')}
+        onOracle={() => setView('oracle')}
       />
     );
   }

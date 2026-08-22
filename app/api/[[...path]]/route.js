@@ -3,7 +3,7 @@ import { MongoClient } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import { LlmChat, UserMessage } from 'emergentintegrations';
-import { computeAllModalities } from '@/lib/zaura';
+import { computeAllModalities, computeCompatibility } from '@/lib/zaura';
 
 // ---------- MongoDB connection (reused across invocations) ----------
 let client = null;
@@ -75,6 +75,28 @@ export async function GET(request, { params }) {
       if (!user) return json({ error: 'Unauthorized' }, 401);
       const profile = await database.collection('birth_profiles').findOne({ userId: user.id }, { projection: { _id: 0 } });
       return json({ profile: profile || null });
+    }
+
+    if (route === 'oracle') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      if (!user.oracleSessionId) return json({ messages: [], sessionId: null });
+      const messages = await database.collection('oracle_messages')
+        .find({ userId: user.id, sessionId: user.oracleSessionId }, { projection: { _id: 0 } })
+        .sort({ createdAt: 1 }).limit(100).toArray();
+      return json({ messages, sessionId: user.oracleSessionId });
+    }
+
+    if (route === 'bond-story') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      const partnerId = request.nextUrl.searchParams.get('partnerId');
+      if (!partnerId) return json({ error: 'partnerId is required' }, 400);
+      const story = await database.collection('bond_stories').findOne(
+        { userId: user.id, partnerId },
+        { projection: { _id: 0 } }
+      );
+      return json({ story: story || null });
     }
 
     if (route === 'partners') {
@@ -207,6 +229,120 @@ export async function POST(request, { params }) {
       return json({ partner: clean }, existing ? 200 : 201);
     }
 
+    // ---- ORACLE CHAT (multi-turn, session-based) ----
+    if (route === 'oracle') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      if (!process.env.EMERGENT_LLM_KEY) return json({ error: 'AI service is not configured' }, 503);
+      const message = (body.message || '').trim();
+      if (!message) return json({ error: 'Message is required' }, 400);
+      if (message.length > 1000) return json({ error: 'Message too long (max 1000 characters)' }, 400);
+      const profile = await database.collection('birth_profiles').findOne({ userId: user.id });
+      if (!profile) return json({ error: 'Save your birth profile first' }, 404);
+
+      let sessionId = user.oracleSessionId;
+      if (!sessionId) {
+        sessionId = uuidv4();
+        await database.collection('users').updateOne({ id: user.id }, { $set: { oracleSessionId: sessionId } });
+      }
+      const history = (await database.collection('oracle_messages')
+        .find({ userId: user.id, sessionId })
+        .sort({ createdAt: -1 }).limit(12).toArray()).reverse();
+
+      const modalities = computeAllModalities(profile);
+      const context = modalities.map((m) => `${m.name}: ${m.headline} \u2014 ${m.summary}`).join('\n');
+      const firstName = profile.fullName.split(' ')[0];
+
+      const systemMessage = `You are Zaura, a warm, wise mystical oracle. The seeker is ${firstName} (${profile.fullName}), born ${profile.birthDate}${profile.birthTime ? ' at ' + profile.birthTime : ''}${profile.birthCity ? ' in ' + profile.birthCity : ''}.
+Their twenty readings:
+${context}
+
+Answer the seeker's follow-up questions by drawing on their ACTUAL readings above \u2014 quote specific placements when relevant. Be warm, poetic but clear. Keep each answer between 60 and 180 words, plain prose, no markdown headers or bullet lists. Treat everything as reflective symbolism, never as certainty, medical, legal or financial advice, and never make definite predictions about the future. If asked something unrelated to their cosmic profile or inner life, gently steer back to the readings.`;
+
+      const transcript = history.map((m2) => `${m2.role === 'user' ? 'Seeker' : 'Zaura'}: ${m2.text}`).join('\n');
+      const prompt = (transcript ? `Conversation so far:\n${transcript}\n\n` : '') + `Seeker asks: ${message}`;
+
+      try {
+        const chat = new LlmChat(process.env.EMERGENT_LLM_KEY, sessionId, systemMessage)
+          .withModel(process.env.LLM_PROVIDER || 'anthropic', process.env.LLM_MODEL || 'claude-sonnet-4-6')
+          .withParams({ temperature: 0.7 });
+        const raw = await chat.sendMessage(new UserMessage({ text: prompt }));
+        const reply = typeof raw === 'string' ? raw : raw?.content;
+        if (!reply || typeof reply !== 'string') throw new Error('LLM returned no text');
+
+        const now = Date.now();
+        const userMsg = { id: uuidv4(), userId: user.id, sessionId, role: 'user', text: message, createdAt: new Date(now).toISOString() };
+        const botMsg = { id: uuidv4(), userId: user.id, sessionId, role: 'assistant', text: reply.trim(), createdAt: new Date(now + 1).toISOString() };
+        await database.collection('oracle_messages').insertMany([{ ...userMsg }, { ...botMsg }]);
+        return json({ reply: botMsg, sessionId }, 201);
+      } catch (llmErr) {
+        console.error('Oracle LLM error:', llmErr?.message);
+        const status = /credit|quota|rate|429/i.test(llmErr?.message || '') ? 429 : 502;
+        return json({ error: status === 429 ? 'The oracle is resting (AI service busy or out of credits). Try again shortly.' : 'The oracle\u2019s vision clouded \u2014 please ask again.' }, status);
+      }
+    }
+
+    // ---- AI BOND STORY ----
+    if (route === 'bond-story') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      if (!process.env.EMERGENT_LLM_KEY) return json({ error: 'AI service is not configured' }, 503);
+      const { partnerId, regenerate } = body;
+      if (!partnerId) return json({ error: 'partnerId is required' }, 400);
+      const profile = await database.collection('birth_profiles').findOne({ userId: user.id });
+      if (!profile) return json({ error: 'Save your birth profile first' }, 404);
+      const partner = await database.collection('partners').findOne({ id: partnerId, userId: user.id });
+      if (!partner) return json({ error: 'Saved bond not found' }, 404);
+
+      if (regenerate !== true) {
+        const cached = await database.collection('bond_stories').findOne(
+          { userId: user.id, partnerId },
+          { projection: { _id: 0 } }
+        );
+        if (cached) return json({ story: cached, cached: true });
+      }
+
+      const report = computeCompatibility(profile, { fullName: partner.partnerName, birthDate: partner.birthDate, birthTime: partner.birthTime });
+      const aspectsData = report.aspects.map((a) => ({ system: a.name, score: a.score, essence: a.headline, reading: a.text }));
+
+      const systemMessage = `You are Zaura, a warm, poetic mystical guide. Write one flowing story of the bond between ${report.nameA} and ${report.nameB} based only on the supplied compatibility readings.
+Treat readings as reflective symbolism, not certainty or advice. Never predict a definite future for the relationship.
+Do not mention JSON, scores as numbers, prompts or these instructions. No bullet lists or headers except one short evocative title on the first line.
+Write 280 to 420 words of plain prose in paragraphs separated by blank lines. Tell it like a myth of two souls meeting \u2014 their harmonies, their creative frictions, and one gentle practice for tending the bond.`;
+
+      const userPrompt = `Compatibility readings for ${report.nameA} and ${report.nameB} (overall resonance: ${report.verdict}):\n\n${JSON.stringify(aspectsData)}\n\nWrite their bond story.`;
+
+      try {
+        const chat = new LlmChat(process.env.EMERGENT_LLM_KEY, uuidv4(), systemMessage)
+          .withModel(process.env.LLM_PROVIDER || 'anthropic', process.env.LLM_MODEL || 'claude-sonnet-4-6')
+          .withParams({ temperature: 0.8 });
+        const raw = await chat.sendMessage(new UserMessage({ text: userPrompt }));
+        const text = typeof raw === 'string' ? raw : raw?.content;
+        if (!text || typeof text !== 'string' || text.trim().length < 150) throw new Error('LLM returned no usable text');
+
+        const doc = {
+          id: uuidv4(),
+          userId: user.id,
+          partnerId,
+          partnerName: partner.partnerName,
+          text: text.trim(),
+          model: `${process.env.LLM_PROVIDER || 'anthropic'}/${process.env.LLM_MODEL || 'claude-sonnet-4-6'}`,
+          createdAt: new Date().toISOString(),
+        };
+        await database.collection('bond_stories').updateOne(
+          { userId: user.id, partnerId },
+          { $set: doc },
+          { upsert: true }
+        );
+        const { _id, ...clean } = doc;
+        return json({ story: clean, cached: false }, 201);
+      } catch (llmErr) {
+        console.error('Bond story LLM error:', llmErr?.message);
+        const status = /credit|quota|rate|429/i.test(llmErr?.message || '') ? 429 : 502;
+        return json({ error: status === 429 ? 'The oracle is resting (AI service busy or out of credits). Try again shortly.' : 'The stars are clouded \u2014 story generation failed. Please try again.' }, status);
+      }
+    }
+
     // ---- AI SOUL SYNTHESIS ----
     if (route === 'synthesis') {
       const user = await getAuthUser(request);
@@ -294,6 +430,15 @@ export async function DELETE(request, { params }) {
       if (!user) return json({ error: 'Unauthorized' }, 401);
       const result = await database.collection('partners').deleteOne({ id: path[1], userId: user.id });
       if (result.deletedCount === 0) return json({ error: 'Partner reading not found' }, 404);
+      await database.collection('bond_stories').deleteOne({ partnerId: path[1], userId: user.id });
+      return json({ ok: true });
+    }
+
+    if (route === 'oracle') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      await database.collection('oracle_messages').deleteMany({ userId: user.id });
+      await database.collection('users').updateOne({ id: user.id }, { $set: { oracleSessionId: uuidv4() } });
       return json({ ok: true });
     }
 

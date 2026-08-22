@@ -238,15 +238,44 @@ frontend:
           agent: "testing"
           comment: "Comprehensive backend testing completed - ALL 17 Saved Partners API tests PASSED: ✅ Register throwaway user (201), ✅ GET /api/partners without token (401), ✅ GET /api/partners empty list (200), ✅ POST /api/partners without token (401), ✅ POST /api/partners first time (201) with UUID id and no _id, ✅ POST /api/partners upsert (200) same ID with updated overall, ✅ Validation tests (missing partnerName 400, bad date format 400, bad time format 400, overall > 100 400, overall as string 400), ✅ GET /api/partners contains partner (200), ✅ DELETE /api/partners/:id without token (401), ✅ DELETE /api/partners/:id with token (200), ✅ GET /api/partners after delete (empty), ✅ DELETE same ID again (404), ✅ Isolation test: luna@zaura.app has 2 partners (River Sage, Orion Vale), throwaway user's partner never appeared in her list. All CRUD operations working, all validation rules correct, authentication working, user isolation working, no MongoDB ObjectID leakage."
 
+  - task: "Oracle Chat API - GET/POST/DELETE /api/oracle (multi-turn, session-based, readings as context)"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "POST /api/oracle {message}: per-user oracleSessionId, last 12 messages as transcript + 20 readings in system prompt, Claude call, stores both messages in oracle_messages, returns {reply, sessionId} 201. GET returns session history. DELETE clears messages + rotates sessionId. Validation: empty message 400, >1000 chars 400, no profile 404, no token 401. Verified via UI: 2-turn conversation with context carryover (nova@zaura.app has an existing 4-message session)."
+        - working: true
+          agent: "testing"
+          comment: "Comprehensive backend testing COMPLETE - ALL 25 Oracle Chat tests PASSED: ✅ GET /api/oracle as nova returns 200 with 4 messages (id/role/text/createdAt, no _id), sessionId present, alternating user/assistant roles verified, ✅ GET/POST /api/oracle without token returns 401, ✅ POST validation: empty message 400, >1000 chars 400, ✅ POST without profile returns 404 with correct error message, ✅ POST as luna with valid message returns 201 with reply (role=assistant, non-empty text, sessionId), GET after POST returns 2 messages, ✅ DELETE without token 401, DELETE with token returns ok:true, GET after DELETE returns empty messages. ONE LLM call made as required. All authentication, validation, session management, and message storage working correctly. No MongoDB ObjectID leakage."
+
+  - task: "AI Bond Story API - GET /api/bond-story?partnerId= and POST /api/bond-story (cached per partner)"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "POST {partnerId}: computes compatibility server-side, generates 280-420 word story, caches in bond_stories (upsert userId+partnerId), returns cached unless regenerate:true. GET ?partnerId= returns cached or null. 400 no partnerId, 404 unknown partner, 401 no token. DELETE partners/:id also cleans up bond story. Verified via UI: story cached for Luna's partner Orion Vale."
+        - working: true
+          agent: "testing"
+          comment: "Comprehensive backend testing COMPLETE - ALL 23 Bond Story tests PASSED: ✅ GET /api/bond-story without token 401, without partnerId 400, ✅ GET /api/partners returns 200, found both partners (Orion Vale, River Sage), ✅ GET /api/bond-story for Orion Vale returns 200 with story object (id/partnerId/partnerName/text/model/createdAt, no _id), ✅ GET /api/bond-story for River Sage returns 200 with story:null (no cache), ✅ POST validation: without partnerId 400, nonexistent partnerId 404, without profile 404, ✅ POST for Orion Vale (no regenerate) returns 200 with cached:true instantly (<2s, 0 LLM calls). All authentication, validation, caching, and data structure working correctly. No MongoDB ObjectID leakage. Orion Vale's cached story preserved as required."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 4
+  test_sequence: 6
   run_ui: false
 
 test_plan:
-  current_focus:
-    - "Saved Partners API - GET/POST /api/partners, DELETE /api/partners/:id (dedupe upsert by name+date)"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -264,3 +293,7 @@ agent_communication:
       message: "Added Saved Partners API testing to test plan. Test user luna@zaura.app has 2 saved partners (River Sage, Orion Vale) - DO NOT DELETE. Use NEW throwaway registered user for all create/delete tests. Do NOT call POST /api/synthesis with regenerate. Test: register throwaway user, GET/POST/DELETE /api/partners with/without token, validation (missing partnerName, bad date/time format, overall range/type), upsert logic (same name+date = update with same ID), isolation (throwaway partner never appears in luna's list)."
     - agent: "testing"
       message: "Saved Partners API backend testing COMPLETE - ALL 17 partners tests PASSED (45 total tests, 0 failures). Verified: ✅ Register throwaway user (201), ✅ GET /api/partners without token (401), ✅ GET /api/partners empty list (200), ✅ POST /api/partners without token (401), ✅ POST /api/partners first time (201) with UUID id and no _id, ✅ POST /api/partners upsert (200) same ID with updated overall, ✅ All validation rules working (missing partnerName 400, bad date format 400, bad time format 400, overall > 100 400, overall as string 400), ✅ GET /api/partners contains partner (200), ✅ DELETE /api/partners/:id without token (401), ✅ DELETE /api/partners/:id with token (200), ✅ GET /api/partners after delete (empty), ✅ DELETE same ID again (404), ✅ Isolation test: luna@zaura.app has 2 partners (River Sage, Orion Vale), throwaway user's partner never appeared in her list. All CRUD operations working correctly, all validation rules correct, authentication working, user isolation working, no MongoDB ObjectID leakage. All backend APIs are production-ready. Ready for main agent to summarize and finish."
+    - agent: "main"
+      message: "Added Oracle Chat API and AI Bond Story API testing to test plan. STRICT LLM COST LIMITS: at most ONE real LLM generation total. NEVER pass regenerate:true. Do NOT POST /api/synthesis. Test users: luna@zaura.app (profile + 2 saved partners: River Sage & Orion Vale; Orion Vale has CACHED bond story - do not delete), nova@zaura.app (profile + existing oracle session with 4 messages - do NOT call DELETE /api/oracle for nova, do NOT send new oracle messages as nova). Test: Oracle Chat (GET as nova, GET/POST without token, POST validation, POST without profile, ONE LLM call as luna, DELETE), Bond Story (GET validation, GET for Orion cached, GET for River null, POST validation, POST for Orion cached instant)."
+    - agent: "testing"
+      message: "Oracle Chat & Bond Story API backend testing COMPLETE - ALL 48 tests PASSED (93 total tests, 0 failures). Oracle Chat (25 tests): ✅ GET /api/oracle as nova returns 200 with 4 messages (id/role/text/createdAt, no _id), sessionId present, alternating user/assistant roles verified, ✅ GET/POST without token 401, ✅ POST validation (empty message 400, >1000 chars 400), ✅ POST without profile 404, ✅ POST as luna returns 201 with reply (role=assistant, non-empty text, sessionId), GET after POST returns 2 messages, ✅ DELETE without token 401, DELETE with token ok:true, GET after DELETE empty. Bond Story (23 tests): ✅ GET without token 401, without partnerId 400, ✅ GET /api/partners returns 200 with both partners (Orion Vale, River Sage), ✅ GET for Orion Vale returns 200 with story (id/partnerId/partnerName/text/model/createdAt, no _id), ✅ GET for River Sage returns 200 with story:null, ✅ POST validation (without partnerId 400, nonexistent partnerId 404, without profile 404), ✅ POST for Orion Vale (no regenerate) returns 200 with cached:true instantly (<2s). ONE LLM call made as required. All authentication, validation, session management, caching, and data structures working correctly. No MongoDB ObjectID leakage. Orion Vale's cached story preserved. All backend APIs are production-ready. Ready for main agent to summarize and finish."
