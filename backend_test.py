@@ -655,6 +655,188 @@ except Exception as e:
     record_result("GET /api/auth/me after logout (401)", False, f"Exception: {str(e)}")
 
 # ============================================================================
+# TEST 23: Login as luna@zaura.app (existing user with cached narrative)
+# ============================================================================
+print(f"\n{YELLOW}TEST 23: Login as luna@zaura.app (existing user){RESET}")
+try:
+    payload = {
+        "email": "luna@zaura.app",
+        "password": "cosmic123"
+    }
+    response = requests.post(f"{BASE_URL}/auth/login", json=payload)
+    
+    passed = response.status_code == 200
+    if passed:
+        data = response.json()
+        has_token = "token" in data and isinstance(data["token"], str) and len(data["token"]) > 0
+        
+        passed = has_token
+        details = f"Token received: {has_token}"
+        
+        # Save token for synthesis tests
+        if passed:
+            LUNA_TOKEN = data["token"]
+    else:
+        details = f"Expected 200, got {response.status_code}: {response.text}"
+    
+    record_result("Login luna@zaura.app (200)", passed, details)
+except Exception as e:
+    record_result("Login luna@zaura.app (200)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 24: GET /api/synthesis - Without Token (401)
+# ============================================================================
+print(f"\n{YELLOW}TEST 24: GET /api/synthesis - Without Token (401){RESET}")
+try:
+    response = requests.get(f"{BASE_URL}/synthesis")
+    
+    passed = response.status_code == 401
+    details = f"Status: {response.status_code}"
+    if not passed:
+        details += f", Response: {response.text}"
+    
+    record_result("GET /api/synthesis without token (401)", passed, details)
+except Exception as e:
+    record_result("GET /api/synthesis without token (401)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 25: POST /api/synthesis - Without Token (401)
+# ============================================================================
+print(f"\n{YELLOW}TEST 25: POST /api/synthesis - Without Token (401){RESET}")
+try:
+    response = requests.post(f"{BASE_URL}/synthesis", json={})
+    
+    passed = response.status_code == 401
+    details = f"Status: {response.status_code}"
+    if not passed:
+        details += f", Response: {response.text}"
+    
+    record_result("POST /api/synthesis without token (401)", passed, details)
+except Exception as e:
+    record_result("POST /api/synthesis without token (401)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 26: GET /api/synthesis - With Token (Returns Cached Narrative)
+# ============================================================================
+print(f"\n{YELLOW}TEST 26: GET /api/synthesis - With Token (Returns Cached Narrative){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {LUNA_TOKEN}"}
+    response = requests.get(f"{BASE_URL}/synthesis", headers=headers)
+    
+    passed = response.status_code == 200
+    if passed:
+        data = response.json()
+        has_narrative = "narrative" in data and isinstance(data["narrative"], dict)
+        
+        if has_narrative:
+            narrative = data["narrative"]
+            has_id = "id" in narrative and is_uuid(narrative["id"])
+            has_user_id = "userId" in narrative and is_uuid(narrative["userId"])
+            has_profile_key = "profileKey" in narrative and isinstance(narrative["profileKey"], str)
+            has_text = "text" in narrative and isinstance(narrative["text"], str) and len(narrative["text"]) > 200
+            has_model = "model" in narrative and isinstance(narrative["model"], str)
+            has_created_at = "createdAt" in narrative and isinstance(narrative["createdAt"], str)
+            
+            # Check for ObjectID leakage
+            objectid_issues = check_no_objectid(data)
+            
+            passed = has_id and has_user_id and has_profile_key and has_text and has_model and has_created_at and len(objectid_issues) == 0
+            details = f"ID UUID: {has_id}, UserID UUID: {has_user_id}, ProfileKey: {has_profile_key}, Text length: {len(narrative.get('text', ''))}, Model: {has_model}, CreatedAt: {has_created_at}"
+            if objectid_issues:
+                details += f", ObjectID issues: {objectid_issues}"
+            
+            # Save narrative text for comparison
+            if passed:
+                LUNA_NARRATIVE_TEXT = narrative["text"]
+        else:
+            passed = False
+            details = "Missing 'narrative' object in response or narrative is null"
+    else:
+        details = f"Expected 200, got {response.status_code}: {response.text}"
+    
+    record_result("GET /api/synthesis with token (200)", passed, details)
+except Exception as e:
+    record_result("GET /api/synthesis with token (200)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 27: POST /api/synthesis - With Token, No Regenerate (Returns Cached)
+# ============================================================================
+print(f"\n{YELLOW}TEST 27: POST /api/synthesis - With Token, No Regenerate (Returns Cached){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {LUNA_TOKEN}"}
+    import time
+    start_time = time.time()
+    response = requests.post(f"{BASE_URL}/synthesis", json={}, headers=headers)
+    elapsed_time = time.time() - start_time
+    
+    passed = response.status_code == 200
+    if passed:
+        data = response.json()
+        has_narrative = "narrative" in data and isinstance(data["narrative"], dict)
+        is_cached = "cached" in data and data["cached"] is True
+        is_fast = elapsed_time < 2.0
+        
+        if has_narrative:
+            narrative = data["narrative"]
+            same_text = narrative.get("text") == LUNA_NARRATIVE_TEXT
+            
+            # Check for ObjectID leakage
+            objectid_issues = check_no_objectid(data)
+            
+            passed = is_cached and is_fast and same_text and len(objectid_issues) == 0
+            details = f"Cached: {is_cached}, Fast (<2s): {is_fast} ({elapsed_time:.3f}s), Same text: {same_text}"
+            if objectid_issues:
+                details += f", ObjectID issues: {objectid_issues}"
+        else:
+            passed = False
+            details = "Missing 'narrative' object in response"
+    else:
+        details = f"Expected 200, got {response.status_code}: {response.text}"
+    
+    record_result("POST /api/synthesis cached (200)", passed, details)
+except Exception as e:
+    record_result("POST /api/synthesis cached (200)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 28: Register New User Without Profile, POST /api/synthesis (404)
+# ============================================================================
+print(f"\n{YELLOW}TEST 28: Register New User Without Profile, POST /api/synthesis (404){RESET}")
+try:
+    # Register a new throwaway user
+    unique_email = f"throwaway_{uuid.uuid4().hex[:8]}@zaura.test"
+    payload = {
+        "email": unique_email,
+        "password": "testpass123",
+        "name": "Throwaway User"
+    }
+    response = requests.post(f"{BASE_URL}/auth/register", json=payload)
+    
+    if response.status_code == 201:
+        data = response.json()
+        throwaway_token = data["token"]
+        
+        # Try to POST /api/synthesis without saving a profile
+        headers = {"Authorization": f"Bearer {throwaway_token}"}
+        response = requests.post(f"{BASE_URL}/synthesis", json={}, headers=headers)
+        
+        passed = response.status_code == 404
+        if passed:
+            data = response.json()
+            has_error = "error" in data
+            correct_message = "error" in data and "profile" in data["error"].lower()
+            
+            passed = has_error and correct_message
+            details = f"Status: 404, Error message contains 'profile': {correct_message}"
+        else:
+            details = f"Expected 404, got {response.status_code}: {response.text}"
+        
+        record_result("POST /api/synthesis without profile (404)", passed, details)
+    else:
+        record_result("POST /api/synthesis without profile (404)", False, f"Failed to register throwaway user: {response.status_code}")
+except Exception as e:
+    record_result("POST /api/synthesis without profile (404)", False, f"Exception: {str(e)}")
+
+# ============================================================================
 # SUMMARY
 # ============================================================================
 print(f"\n{BLUE}{'='*60}{RESET}")

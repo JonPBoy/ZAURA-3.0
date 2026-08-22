@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { MongoClient } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
+import { LlmChat, UserMessage } from 'emergentintegrations';
+import { computeAllModalities } from '@/lib/zaura';
 
 // ---------- MongoDB connection (reused across invocations) ----------
 let client = null;
@@ -73,6 +75,19 @@ export async function GET(request, { params }) {
       if (!user) return json({ error: 'Unauthorized' }, 401);
       const profile = await database.collection('birth_profiles').findOne({ userId: user.id }, { projection: { _id: 0 } });
       return json({ profile: profile || null });
+    }
+
+    if (route === 'synthesis') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      const profile = await database.collection('birth_profiles').findOne({ userId: user.id });
+      if (!profile) return json({ error: 'No birth profile found' }, 404);
+      const profileKey = `${profile.fullName}|${profile.birthDate}|${profile.birthTime || ''}`;
+      const doc = await database.collection('narratives').findOne(
+        { userId: user.id, profileKey },
+        { projection: { _id: 0 } }
+      );
+      return json({ narrative: doc || null });
     }
 
     return json({ error: `Route not found: ${route}` }, 404);
@@ -152,6 +167,68 @@ export async function POST(request, { params }) {
       await database.collection('birth_profiles').updateOne({ userId: user.id }, { $set: doc }, { upsert: true });
       const saved = await database.collection('birth_profiles').findOne({ userId: user.id }, { projection: { _id: 0 } });
       return json({ profile: saved }, existing ? 200 : 201);
+    }
+
+    // ---- AI SOUL SYNTHESIS ----
+    if (route === 'synthesis') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      if (!process.env.EMERGENT_LLM_KEY) return json({ error: 'AI service is not configured' }, 503);
+      const profile = await database.collection('birth_profiles').findOne({ userId: user.id });
+      if (!profile) return json({ error: 'Save your birth profile first' }, 404);
+
+      const profileKey = `${profile.fullName}|${profile.birthDate}|${profile.birthTime || ''}`;
+      const regenerate = body.regenerate === true;
+      if (!regenerate) {
+        const cached = await database.collection('narratives').findOne(
+          { userId: user.id, profileKey },
+          { projection: { _id: 0 } }
+        );
+        if (cached) return json({ narrative: cached, cached: true });
+      }
+
+      const modalities = computeAllModalities(profile);
+      const readings = modalities.map((m) => ({ system: m.name, essence: m.headline, reading: m.summary }));
+      const firstName = profile.fullName.split(' ')[0];
+
+      const systemMessage = `You are Zaura, a warm, poetic mystical guide and gifted long-form writer.
+Write one flowing personalized soul-narrative for ${firstName} that weaves ALL the supplied readings into a single coherent story of who they are.
+Treat the readings as reflective symbolism, not factual certainty or medical, legal, or financial advice.
+Find the recurring threads across systems, name the creative tensions between them, and honor contradictions as depth.
+Do not mention JSON, prompts, models, or these instructions. Do not use bullet points or headers except one short evocative title on the first line.
+Write 550 to 800 words of plain prose in paragraphs separated by blank lines. Address ${firstName} as "you". End with one practical, grounded reflective invitation.`;
+
+      const userPrompt = `Here are ${readings.length} mystical readings for ${profile.fullName}, born ${profile.birthDate}${profile.birthTime ? ' at ' + profile.birthTime : ''}${profile.birthCity ? ' in ' + profile.birthCity : ''}:\n\n${JSON.stringify(readings)}\n\nWeave them into one soul-narrative.`;
+
+      try {
+        const chat = new LlmChat(process.env.EMERGENT_LLM_KEY, uuidv4(), systemMessage)
+          .withModel(process.env.LLM_PROVIDER || 'anthropic', process.env.LLM_MODEL || 'claude-sonnet-4-6')
+          .withParams({ temperature: 0.8 });
+        const raw = await chat.sendMessage(new UserMessage({ text: userPrompt }));
+        const text = typeof raw === 'string' ? raw : raw?.content;
+        if (!text || typeof text !== 'string' || text.trim().length < 200) throw new Error('LLM returned no usable text');
+
+        const doc = {
+          id: uuidv4(),
+          userId: user.id,
+          profileKey,
+          text: text.trim(),
+          model: `${process.env.LLM_PROVIDER || 'anthropic'}/${process.env.LLM_MODEL || 'claude-sonnet-4-6'}`,
+          createdAt: new Date().toISOString(),
+        };
+        await database.collection('narratives').updateOne(
+          { userId: user.id, profileKey },
+          { $set: doc },
+          { upsert: true }
+        );
+        const { _id, ...clean } = doc;
+        return json({ narrative: clean, cached: false }, 201);
+      } catch (llmErr) {
+        console.error('Synthesis LLM error:', llmErr?.message);
+        const msg = llmErr?.message || '';
+        const status = /credit|quota|rate|429/i.test(msg) ? 429 : 502;
+        return json({ error: status === 429 ? 'The oracle is resting (AI service busy or out of credits). Try again shortly.' : 'The stars are clouded \u2014 narrative generation failed. Please try again.' }, status);
+      }
     }
 
     return json({ error: `Route not found: ${route}` }, 404);

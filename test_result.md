@@ -135,6 +135,21 @@ backend:
           agent: "testing"
           comment: "Comprehensive backend testing completed - ALL 12 profile tests PASSED: ✅ POST /api/profile (201 first time, 200 upsert with same ID, 400 missing fullName, 400 bad date format, 400 out of range date, 400 bad time format, 401 no token), ✅ GET /api/profile (returns saved profile with UUIDs), ✅ DELETE /api/profile (success, then GET returns null). All validation rules working correctly, no MongoDB ObjectID leakage detected."
 
+  - task: "AI Soul Synthesis - POST/GET /api/synthesis (Claude Sonnet via emergentintegrations, cached per profile)"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "POST /api/synthesis generates a 550-800 word narrative from all 20 computed readings (server-side, from stored profile) using EMERGENT_LLM_KEY + anthropic/claude-sonnet-4-6. Caches in 'narratives' collection keyed by userId+profileKey; body {regenerate:true} forces new generation. GET /api/synthesis returns cached narrative or null. Verified manually: 201 generation (769 words, ~27s), cached:true on repeat POST (32ms), GET returns narrative, 401 without token. Frontend card verified via screenshot."
+        - working: true
+          agent: "testing"
+          comment: "Comprehensive backend testing completed - ALL 6 synthesis tests PASSED: ✅ Login as luna@zaura.app (200), ✅ GET /api/synthesis without token (401), ✅ POST /api/synthesis without token (401), ✅ GET /api/synthesis with token (200) returns cached narrative with all required fields (id UUID, userId UUID, profileKey, text 4455 chars, model, createdAt), no _id leakage, ✅ POST /api/synthesis cached (200) returns cached:true instantly (0.126s < 2s) with same text, ✅ POST /api/synthesis without profile (404) returns correct error message. No LLM generation triggered (used existing cached narrative). All validation, authentication, and caching working correctly."
+
 frontend:
   - task: "Auth view (login/register tabs, glass card, nebula background)"
     implemented: true
@@ -187,13 +202,12 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 2
+  test_sequence: 3
   run_ui: false
 
 test_plan:
   current_focus:
-    - "Auth API - register/login/logout/me (Node crypto scrypt hashing, Bearer token sessions in MongoDB)"
-    - "Birth profile API - POST/GET/DELETE /api/profile with validation and upsert"
+    - "AI Soul Synthesis - POST/GET /api/synthesis (Claude Sonnet via emergentintegrations, cached per profile)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -203,3 +217,7 @@ agent_communication:
       message: "MVP built in one pass. Backend needs full testing: auth flows (register duplicate email 409, bad password 401, weak password 400, invalid email 400), token-protected routes (401 without token), profile validation (missing name, bad date format, out-of-range date, bad time format), profile upsert idempotency, GET /api/profile, DELETE /api/profile. Test user exists: luna@zaura.app / cosmic123. All IDs are UUIDs, no ObjectID exposure. Frontend verified visually via screenshots; do NOT run frontend testing without user permission."
     - agent: "testing"
       message: "Backend testing COMPLETE - ALL 22 tests PASSED (10 auth + 12 profile). Created comprehensive test suite in /app/backend_test.py. Verified: all endpoints return correct status codes, all validation rules working, authentication/authorization correct, profile upsert idempotent (same ID on update), no MongoDB ObjectID leakage, all IDs are UUIDs, token invalidation after logout working. Backend is production-ready. Ready for main agent to summarize and finish."
+    - agent: "main"
+      message: "Added AI Soul Synthesis endpoint testing to test plan. Test user luna@zaura.app has saved birth profile AND already-cached narrative. COST CONSTRAINT: Limit to AT MOST ONE real LLM generation (only if unavoidable). Do NOT send regenerate:true. Test: login, GET/POST synthesis with/without token, POST without profile (404), verify cached response is instant (<2s), check UUID format and no _id leakage."
+    - agent: "testing"
+      message: "AI Soul Synthesis backend testing COMPLETE - ALL 6 synthesis tests PASSED (28 total tests, 0 failures). Verified: ✅ Authentication (401 without token for both GET and POST), ✅ GET /api/synthesis returns cached narrative with all required fields (id, userId, profileKey, text, model, createdAt) as UUIDs, ✅ POST /api/synthesis returns cached:true instantly (0.126s < 2s) with same text, ✅ POST without profile returns 404 with correct error message, ✅ No MongoDB ObjectID leakage detected, ✅ No LLM generation triggered (used existing cached narrative). All backend APIs are production-ready. Ready for main agent to summarize and finish."

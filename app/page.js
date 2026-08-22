@@ -335,8 +335,99 @@ const CosmicFlipCard = ({ profile, summary }) => {
   );
 };
 
+// ---------------- AI SOUL SYNTHESIS ----------------
+const SoulSynthesis = ({ token }) => {
+  const [narrative, setNarrative] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [checked, setChecked] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    apiCall('synthesis', { token })
+      .then((d) => setNarrative(d.narrative))
+      .catch(() => {})
+      .finally(() => setChecked(true));
+  }, [token]);
+
+  const generate = async (regenerate = false) => {
+    setLoading(true);
+    setError('');
+    try {
+      const d = await apiCall('synthesis', { method: 'POST', token, body: { regenerate } });
+      setNarrative(d.narrative);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const lines = narrative?.text ? narrative.text.split('\n').map((l) => l.trim()).filter(Boolean) : [];
+  const title = (lines[0] || '').replace(/^[#*\s]+/, '').replace(/[*\s]+$/, '');
+  const paras = lines.slice(1).map((p) => p.replace(/\*\*/g, ''));
+
+  return (
+    <GlassCard className="p-6 sm:p-8 mb-10" data-testid="soul-synthesis-card">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">&#128302;</span>
+          <div>
+            <h2 className="text-2xl font-semibold" style={{ fontFamily: 'var(--font-mystic)' }}>
+              <GradientText>AI Soul Synthesis</GradientText>
+            </h2>
+            <p className="text-xs text-violet-200/50">All twenty readings, woven into one story of you</p>
+          </div>
+        </div>
+        {narrative && !loading && (
+          <button
+            data-testid="synthesis-regenerate-btn"
+            onClick={() => generate(true)}
+            className="text-xs rounded-lg border border-white/10 px-3 py-1.5 text-violet-200/60 hover:text-violet-100 hover:border-violet-400/40 transition-colors"
+          >
+            Weave anew
+          </button>
+        )}
+      </div>
+
+      {loading && (
+        <div className="py-10 text-center" data-testid="synthesis-loading">
+          <Loader2 className="w-6 h-6 animate-spin text-violet-300 mx-auto mb-3" />
+          <p className="text-sm text-violet-200/60 italic">The oracle is reading all twenty charts and weaving your story... this takes a moment.</p>
+        </div>
+      )}
+
+      {!loading && narrative && (
+        <div data-testid="synthesis-narrative">
+          <h3 className="text-xl text-amber-100/90 mb-4 italic" style={{ fontFamily: 'var(--font-mystic)' }}>{title}</h3>
+          <div className="space-y-4 text-sm leading-relaxed text-violet-100/80">
+            {paras.map((p, i) => <p key={i}>{p}</p>)}
+          </div>
+          <p className="mt-5 text-[10px] uppercase tracking-widest text-violet-200/30">Woven {new Date(narrative.createdAt).toLocaleString()} &middot; for reflection, not prediction</p>
+        </div>
+      )}
+
+      {!loading && !narrative && checked && (
+        <div className="py-6 text-center">
+          <p className="text-sm text-violet-100/60 mb-5 max-w-xl mx-auto">
+            Twenty ancient systems have each read your birth moment. Let the oracle weave every thread &mdash; your sun and shadow, numbers and totems &mdash; into one flowing narrative of who you are.
+          </p>
+          <button
+            data-testid="synthesis-generate-btn"
+            onClick={() => generate(false)}
+            className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 px-6 py-3 text-sm font-medium transition-colors inline-flex items-center gap-2"
+          >
+            <Sparkles className="w-4 h-4" /> Weave My Soul Story
+          </button>
+        </div>
+      )}
+
+      {error && <p data-testid="synthesis-error" className="mt-4 text-sm text-rose-300/90 text-center">{error}</p>}
+    </GlassCard>
+  );
+};
+
 // ---------------- DASHBOARD ----------------
-const Dashboard = ({ user, profile, modalities, summary, onOpen, onEdit, onLogout }) => {
+const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, onLogout }) => {
   const [filter, setFilter] = useState('All');
   const shown = filter === 'All' ? modalities : modalities.filter((m) => m.category === filter);
   return (
@@ -393,6 +484,8 @@ const Dashboard = ({ user, profile, modalities, summary, onOpen, onEdit, onLogou
             </div>
           </GlassCard>
         </div>
+
+        <SoulSynthesis token={token} />
 
         {/* filters */}
         <div className="flex flex-wrap gap-2 mb-6" data-testid="category-filters">
@@ -580,6 +673,7 @@ const App = () => {
     return (
       <Dashboard
         user={user}
+        token={token}
         profile={profile}
         modalities={modalities}
         summary={summary}
