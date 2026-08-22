@@ -837,6 +837,487 @@ except Exception as e:
     record_result("POST /api/synthesis without profile (404)", False, f"Exception: {str(e)}")
 
 # ============================================================================
+# SAVED PARTNERS API TESTS
+# ============================================================================
+print(f"\n{BLUE}{'='*60}{RESET}")
+print(f"{BLUE}SAVED PARTNERS API TESTS{RESET}")
+print(f"{BLUE}{'='*60}{RESET}\n")
+
+# ============================================================================
+# TEST 29: Register Throwaway User for Partners Testing
+# ============================================================================
+print(f"\n{YELLOW}TEST 29: Register Throwaway User for Partners Testing{RESET}")
+try:
+    throwaway_email = f"partner_test_{uuid.uuid4().hex[:8]}@zaura.test"
+    payload = {
+        "email": throwaway_email,
+        "password": "testpass123",
+        "name": "Partner Test User"
+    }
+    response = requests.post(f"{BASE_URL}/auth/register", json=payload)
+    
+    passed = response.status_code == 201
+    if passed:
+        data = response.json()
+        has_token = "token" in data and isinstance(data["token"], str) and len(data["token"]) > 0
+        
+        passed = has_token
+        details = f"Token received: {has_token}"
+        
+        # Save token for partners tests
+        if passed:
+            THROWAWAY_TOKEN = data["token"]
+            THROWAWAY_EMAIL = throwaway_email
+    else:
+        details = f"Expected 201, got {response.status_code}: {response.text}"
+    
+    record_result("Register throwaway user for partners (201)", passed, details)
+except Exception as e:
+    record_result("Register throwaway user for partners (201)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 30: GET /api/partners - Without Token (401)
+# ============================================================================
+print(f"\n{YELLOW}TEST 30: GET /api/partners - Without Token (401){RESET}")
+try:
+    response = requests.get(f"{BASE_URL}/partners")
+    
+    passed = response.status_code == 401
+    details = f"Status: {response.status_code}"
+    if not passed:
+        details += f", Response: {response.text}"
+    
+    record_result("GET /api/partners without token (401)", passed, details)
+except Exception as e:
+    record_result("GET /api/partners without token (401)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 31: GET /api/partners - With Token, Empty List (200)
+# ============================================================================
+print(f"\n{YELLOW}TEST 31: GET /api/partners - With Token, Empty List (200){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {THROWAWAY_TOKEN}"}
+    response = requests.get(f"{BASE_URL}/partners", headers=headers)
+    
+    passed = response.status_code == 200
+    if passed:
+        data = response.json()
+        has_partners = "partners" in data and isinstance(data["partners"], list)
+        is_empty = has_partners and len(data["partners"]) == 0
+        
+        # Check for ObjectID leakage
+        objectid_issues = check_no_objectid(data)
+        
+        passed = has_partners and is_empty and len(objectid_issues) == 0
+        details = f"Has partners field: {has_partners}, Empty: {is_empty}"
+        if objectid_issues:
+            details += f", ObjectID issues: {objectid_issues}"
+    else:
+        details = f"Expected 200, got {response.status_code}: {response.text}"
+    
+    record_result("GET /api/partners empty list (200)", passed, details)
+except Exception as e:
+    record_result("GET /api/partners empty list (200)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 32: POST /api/partners - Without Token (401)
+# ============================================================================
+print(f"\n{YELLOW}TEST 32: POST /api/partners - Without Token (401){RESET}")
+try:
+    payload = {
+        "partnerName": "Test Partner",
+        "birthDate": "1991-05-10",
+        "birthTime": "09:15",
+        "overall": 77,
+        "verdict": "A Karmic Match"
+    }
+    response = requests.post(f"{BASE_URL}/partners", json=payload)
+    
+    passed = response.status_code == 401
+    details = f"Status: {response.status_code}"
+    if not passed:
+        details += f", Response: {response.text}"
+    
+    record_result("POST /api/partners without token (401)", passed, details)
+except Exception as e:
+    record_result("POST /api/partners without token (401)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 33: POST /api/partners - Valid Data First Time (201)
+# ============================================================================
+print(f"\n{YELLOW}TEST 33: POST /api/partners - Valid Data First Time (201){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {THROWAWAY_TOKEN}"}
+    payload = {
+        "partnerName": "Stellar Phoenix",
+        "birthDate": "1991-05-10",
+        "birthTime": "09:15",
+        "overall": 77,
+        "verdict": "A Karmic Match"
+    }
+    response = requests.post(f"{BASE_URL}/partners", json=payload, headers=headers)
+    
+    passed = response.status_code == 201
+    if passed:
+        data = response.json()
+        has_partner = "partner" in data and isinstance(data["partner"], dict)
+        
+        if has_partner:
+            partner = data["partner"]
+            has_id = "id" in partner and is_uuid(partner["id"])
+            has_no_underscore_id = "_id" not in partner
+            has_name = "partnerName" in partner and partner["partnerName"] == "Stellar Phoenix"
+            has_overall = "overall" in partner and partner["overall"] == 77
+            has_verdict = "verdict" in partner and partner["verdict"] == "A Karmic Match"
+            
+            # Check for ObjectID leakage
+            objectid_issues = check_no_objectid(data)
+            
+            passed = has_id and has_no_underscore_id and has_name and has_overall and has_verdict and len(objectid_issues) == 0
+            details = f"UUID: {has_id}, No _id: {has_no_underscore_id}, Name: {has_name}, Overall: {has_overall}, Verdict: {has_verdict}"
+            if objectid_issues:
+                details += f", ObjectID issues: {objectid_issues}"
+            
+            # Save partner ID for later tests
+            if passed:
+                PARTNER_ID = partner["id"]
+        else:
+            passed = False
+            details = "Missing 'partner' object in response"
+    else:
+        details = f"Expected 201, got {response.status_code}: {response.text}"
+    
+    record_result("POST /api/partners first time (201)", passed, details)
+except Exception as e:
+    record_result("POST /api/partners first time (201)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 34: POST /api/partners - Same Name+Date, Different Overall (200 Upsert)
+# ============================================================================
+print(f"\n{YELLOW}TEST 34: POST /api/partners - Same Name+Date, Different Overall (200 Upsert){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {THROWAWAY_TOKEN}"}
+    payload = {
+        "partnerName": "Stellar Phoenix",  # Same name
+        "birthDate": "1991-05-10",  # Same date
+        "birthTime": "09:15",
+        "overall": 80,  # Different overall
+        "verdict": "A Karmic Match Updated"
+    }
+    response = requests.post(f"{BASE_URL}/partners", json=payload, headers=headers)
+    
+    passed = response.status_code == 200
+    if passed:
+        data = response.json()
+        has_partner = "partner" in data and isinstance(data["partner"], dict)
+        
+        if has_partner:
+            partner = data["partner"]
+            same_id = partner.get("id") == PARTNER_ID
+            updated_overall = partner.get("overall") == 80
+            
+            # Check for ObjectID leakage
+            objectid_issues = check_no_objectid(data)
+            
+            passed = same_id and updated_overall and len(objectid_issues) == 0
+            details = f"Same ID: {same_id}, Updated overall to 80: {updated_overall}"
+            if objectid_issues:
+                details += f", ObjectID issues: {objectid_issues}"
+        else:
+            passed = False
+            details = "Missing 'partner' object in response"
+    else:
+        details = f"Expected 200, got {response.status_code}: {response.text}"
+    
+    record_result("POST /api/partners upsert (200)", passed, details)
+except Exception as e:
+    record_result("POST /api/partners upsert (200)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 35: POST /api/partners - Missing partnerName (400)
+# ============================================================================
+print(f"\n{YELLOW}TEST 35: POST /api/partners - Missing partnerName (400){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {THROWAWAY_TOKEN}"}
+    payload = {
+        "birthDate": "1991-05-10",
+        "birthTime": "09:15",
+        "overall": 77,
+        "verdict": "A Karmic Match"
+    }
+    response = requests.post(f"{BASE_URL}/partners", json=payload, headers=headers)
+    
+    passed = response.status_code == 400
+    details = f"Status: {response.status_code}"
+    if not passed:
+        details += f", Response: {response.text}"
+    
+    record_result("POST /api/partners missing partnerName (400)", passed, details)
+except Exception as e:
+    record_result("POST /api/partners missing partnerName (400)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 36: POST /api/partners - Bad Date Format (400)
+# ============================================================================
+print(f"\n{YELLOW}TEST 36: POST /api/partners - Bad Date Format (400){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {THROWAWAY_TOKEN}"}
+    payload = {
+        "partnerName": "Test Partner",
+        "birthDate": "10-05-1991",  # Wrong format
+        "birthTime": "09:15",
+        "overall": 77,
+        "verdict": "A Karmic Match"
+    }
+    response = requests.post(f"{BASE_URL}/partners", json=payload, headers=headers)
+    
+    passed = response.status_code == 400
+    details = f"Status: {response.status_code}"
+    if not passed:
+        details += f", Response: {response.text}"
+    
+    record_result("POST /api/partners bad date format (400)", passed, details)
+except Exception as e:
+    record_result("POST /api/partners bad date format (400)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 37: POST /api/partners - Bad Time Format (400)
+# ============================================================================
+print(f"\n{YELLOW}TEST 37: POST /api/partners - Bad Time Format (400){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {THROWAWAY_TOKEN}"}
+    payload = {
+        "partnerName": "Test Partner",
+        "birthDate": "1991-05-10",
+        "birthTime": "9am",  # Wrong format
+        "overall": 77,
+        "verdict": "A Karmic Match"
+    }
+    response = requests.post(f"{BASE_URL}/partners", json=payload, headers=headers)
+    
+    passed = response.status_code == 400
+    details = f"Status: {response.status_code}"
+    if not passed:
+        details += f", Response: {response.text}"
+    
+    record_result("POST /api/partners bad time format (400)", passed, details)
+except Exception as e:
+    record_result("POST /api/partners bad time format (400)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 38: POST /api/partners - Overall > 100 (400)
+# ============================================================================
+print(f"\n{YELLOW}TEST 38: POST /api/partners - Overall > 100 (400){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {THROWAWAY_TOKEN}"}
+    payload = {
+        "partnerName": "Test Partner",
+        "birthDate": "1991-05-10",
+        "birthTime": "09:15",
+        "overall": 150,  # Out of range
+        "verdict": "A Karmic Match"
+    }
+    response = requests.post(f"{BASE_URL}/partners", json=payload, headers=headers)
+    
+    passed = response.status_code == 400
+    details = f"Status: {response.status_code}"
+    if not passed:
+        details += f", Response: {response.text}"
+    
+    record_result("POST /api/partners overall > 100 (400)", passed, details)
+except Exception as e:
+    record_result("POST /api/partners overall > 100 (400)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 39: POST /api/partners - Overall as String (400)
+# ============================================================================
+print(f"\n{YELLOW}TEST 39: POST /api/partners - Overall as String (400){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {THROWAWAY_TOKEN}"}
+    payload = {
+        "partnerName": "Test Partner",
+        "birthDate": "1991-05-10",
+        "birthTime": "09:15",
+        "overall": "high",  # String instead of number
+        "verdict": "A Karmic Match"
+    }
+    response = requests.post(f"{BASE_URL}/partners", json=payload, headers=headers)
+    
+    passed = response.status_code == 400
+    details = f"Status: {response.status_code}"
+    if not passed:
+        details += f", Response: {response.text}"
+    
+    record_result("POST /api/partners overall as string (400)", passed, details)
+except Exception as e:
+    record_result("POST /api/partners overall as string (400)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 40: GET /api/partners - With Token, Contains Partner (200)
+# ============================================================================
+print(f"\n{YELLOW}TEST 40: GET /api/partners - With Token, Contains Partner (200){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {THROWAWAY_TOKEN}"}
+    response = requests.get(f"{BASE_URL}/partners", headers=headers)
+    
+    passed = response.status_code == 200
+    if passed:
+        data = response.json()
+        has_partners = "partners" in data and isinstance(data["partners"], list)
+        has_one_partner = has_partners and len(data["partners"]) == 1
+        
+        if has_one_partner:
+            partner = data["partners"][0]
+            correct_id = partner.get("id") == PARTNER_ID
+            correct_name = partner.get("partnerName") == "Stellar Phoenix"
+            correct_overall = partner.get("overall") == 80
+            
+            # Check for ObjectID leakage
+            objectid_issues = check_no_objectid(data)
+            
+            passed = correct_id and correct_name and correct_overall and len(objectid_issues) == 0
+            details = f"Has 1 partner: {has_one_partner}, Correct ID: {correct_id}, Name: {correct_name}, Overall: {correct_overall}"
+            if objectid_issues:
+                details += f", ObjectID issues: {objectid_issues}"
+        else:
+            passed = False
+            details = f"Expected 1 partner, got {len(data.get('partners', []))}"
+    else:
+        details = f"Expected 200, got {response.status_code}: {response.text}"
+    
+    record_result("GET /api/partners contains partner (200)", passed, details)
+except Exception as e:
+    record_result("GET /api/partners contains partner (200)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 41: DELETE /api/partners/:id - Without Token (401)
+# ============================================================================
+print(f"\n{YELLOW}TEST 41: DELETE /api/partners/:id - Without Token (401){RESET}")
+try:
+    response = requests.delete(f"{BASE_URL}/partners/{PARTNER_ID}")
+    
+    passed = response.status_code == 401
+    details = f"Status: {response.status_code}"
+    if not passed:
+        details += f", Response: {response.text}"
+    
+    record_result("DELETE /api/partners/:id without token (401)", passed, details)
+except Exception as e:
+    record_result("DELETE /api/partners/:id without token (401)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 42: DELETE /api/partners/:id - With Token (200)
+# ============================================================================
+print(f"\n{YELLOW}TEST 42: DELETE /api/partners/:id - With Token (200){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {THROWAWAY_TOKEN}"}
+    response = requests.delete(f"{BASE_URL}/partners/{PARTNER_ID}", headers=headers)
+    
+    passed = response.status_code == 200
+    if passed:
+        data = response.json()
+        has_ok = "ok" in data and data["ok"] is True
+        
+        passed = has_ok
+        details = f"Response ok: {has_ok}"
+    else:
+        details = f"Expected 200, got {response.status_code}: {response.text}"
+    
+    record_result("DELETE /api/partners/:id with token (200)", passed, details)
+except Exception as e:
+    record_result("DELETE /api/partners/:id with token (200)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 43: GET /api/partners - After Delete, Empty List (200)
+# ============================================================================
+print(f"\n{YELLOW}TEST 43: GET /api/partners - After Delete, Empty List (200){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {THROWAWAY_TOKEN}"}
+    response = requests.get(f"{BASE_URL}/partners", headers=headers)
+    
+    passed = response.status_code == 200
+    if passed:
+        data = response.json()
+        has_partners = "partners" in data and isinstance(data["partners"], list)
+        is_empty = has_partners and len(data["partners"]) == 0
+        
+        passed = has_partners and is_empty
+        details = f"Has partners field: {has_partners}, Empty: {is_empty}"
+    else:
+        details = f"Expected 200, got {response.status_code}: {response.text}"
+    
+    record_result("GET /api/partners after delete (empty)", passed, details)
+except Exception as e:
+    record_result("GET /api/partners after delete (empty)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 44: DELETE /api/partners/:id - Same ID Again (404)
+# ============================================================================
+print(f"\n{YELLOW}TEST 44: DELETE /api/partners/:id - Same ID Again (404){RESET}")
+try:
+    headers = {"Authorization": f"Bearer {THROWAWAY_TOKEN}"}
+    response = requests.delete(f"{BASE_URL}/partners/{PARTNER_ID}", headers=headers)
+    
+    passed = response.status_code == 404
+    details = f"Status: {response.status_code}"
+    if not passed:
+        details += f", Response: {response.text}"
+    
+    record_result("DELETE /api/partners/:id same ID again (404)", passed, details)
+except Exception as e:
+    record_result("DELETE /api/partners/:id same ID again (404)", False, f"Exception: {str(e)}")
+
+# ============================================================================
+# TEST 45: Login as luna@zaura.app - Verify Her 2 Partners Exist
+# ============================================================================
+print(f"\n{YELLOW}TEST 45: Login as luna@zaura.app - Verify Her 2 Partners Exist{RESET}")
+try:
+    payload = {
+        "email": "luna@zaura.app",
+        "password": "cosmic123"
+    }
+    response = requests.post(f"{BASE_URL}/auth/login", json=payload)
+    
+    if response.status_code == 200:
+        data = response.json()
+        luna_token = data["token"]
+        
+        # Get luna's partners
+        headers = {"Authorization": f"Bearer {luna_token}"}
+        response = requests.get(f"{BASE_URL}/partners", headers=headers)
+        
+        passed = response.status_code == 200
+        if passed:
+            data = response.json()
+            has_partners = "partners" in data and isinstance(data["partners"], list)
+            has_two_partners = has_partners and len(data["partners"]) == 2
+            
+            if has_two_partners:
+                partner_names = [p.get("partnerName") for p in data["partners"]]
+                has_river = "River Sage" in partner_names
+                has_orion = "Orion Vale" in partner_names
+                no_throwaway = PARTNER_ID not in [p.get("id") for p in data["partners"]]
+                
+                # Check for ObjectID leakage
+                objectid_issues = check_no_objectid(data)
+                
+                passed = has_river and has_orion and no_throwaway and len(objectid_issues) == 0
+                details = f"Has 2 partners: {has_two_partners}, River Sage: {has_river}, Orion Vale: {has_orion}, No throwaway partner: {no_throwaway}"
+                if objectid_issues:
+                    details += f", ObjectID issues: {objectid_issues}"
+            else:
+                passed = False
+                details = f"Expected 2 partners, got {len(data.get('partners', []))}"
+        else:
+            details = f"Expected 200, got {response.status_code}: {response.text}"
+        
+        record_result("Luna has 2 partners (isolation test)", passed, details)
+    else:
+        record_result("Luna has 2 partners (isolation test)", False, f"Failed to login as luna: {response.status_code}")
+except Exception as e:
+    record_result("Luna has 2 partners (isolation test)", False, f"Exception: {str(e)}")
+
+# ============================================================================
 # SUMMARY
 # ============================================================================
 print(f"\n{BLUE}{'='*60}{RESET}")

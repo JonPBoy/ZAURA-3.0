@@ -77,6 +77,15 @@ export async function GET(request, { params }) {
       return json({ profile: profile || null });
     }
 
+    if (route === 'partners') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      const partners = await database.collection('partners')
+        .find({ userId: user.id }, { projection: { _id: 0 } })
+        .sort({ createdAt: -1 }).limit(50).toArray();
+      return json({ partners });
+    }
+
     if (route === 'synthesis') {
       const user = await getAuthUser(request);
       if (!user) return json({ error: 'Unauthorized' }, 401);
@@ -169,6 +178,35 @@ export async function POST(request, { params }) {
       return json({ profile: saved }, existing ? 200 : 201);
     }
 
+    // ---- SAVE PARTNER / COMPATIBILITY READING ----
+    if (route === 'partners') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      const { partnerName, birthDate, birthTime, overall, verdict } = body;
+      if (!partnerName || !partnerName.trim()) return json({ error: 'Partner name is required' }, 400);
+      if (!birthDate || !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return json({ error: 'Birth date is required (YYYY-MM-DD)' }, 400);
+      if (birthTime && !/^\d{2}:\d{2}$/.test(birthTime)) return json({ error: 'Birth time must be HH:MM' }, 400);
+      if (typeof overall !== 'number' || overall < 0 || overall > 100) return json({ error: 'Overall score must be 0-100' }, 400);
+
+      const key = { userId: user.id, nameKey: partnerName.trim().toLowerCase(), birthDate };
+      const existing = await database.collection('partners').findOne(key);
+      const doc = {
+        id: existing?.id || uuidv4(),
+        userId: user.id,
+        nameKey: partnerName.trim().toLowerCase(),
+        partnerName: partnerName.trim(),
+        birthDate,
+        birthTime: birthTime || null,
+        overall,
+        verdict: (verdict || '').slice(0, 80),
+        createdAt: existing?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await database.collection('partners').updateOne(key, { $set: doc }, { upsert: true });
+      const { _id, ...clean } = doc;
+      return json({ partner: clean }, existing ? 200 : 201);
+    }
+
     // ---- AI SOUL SYNTHESIS ----
     if (route === 'synthesis') {
       const user = await getAuthUser(request);
@@ -248,6 +286,14 @@ export async function DELETE(request, { params }) {
       const user = await getAuthUser(request);
       if (!user) return json({ error: 'Unauthorized' }, 401);
       await database.collection('birth_profiles').deleteOne({ userId: user.id });
+      return json({ ok: true });
+    }
+
+    if (path[0] === 'partners' && path[1]) {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      const result = await database.collection('partners').deleteOne({ id: path[1], userId: user.id });
+      if (result.deletedCount === 0) return json({ error: 'Partner reading not found' }, 404);
       return json({ ok: true });
     }
 

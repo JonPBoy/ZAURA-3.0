@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { computeAllModalities, cosmicProfileSummary, geocodeCity, CITIES, CATEGORIES, computeCompatibility } from '@/lib/zaura';
-import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart } from 'lucide-react';
+import { computeAllModalities, cosmicProfileSummary, geocodeCity, CITIES, CATEGORIES, computeCompatibility, computeDailyReading } from '@/lib/zaura';
+import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart, Trash2 } from 'lucide-react';
 
 const API = '/api';
 const TOKEN_KEY = 'zaura_token';
@@ -426,6 +426,47 @@ const SoulSynthesis = ({ token }) => {
   );
 };
 
+// ---------------- DAILY COSMIC READING ----------------
+const DailyReading = ({ profile }) => {
+  const [daily, setDaily] = useState(null);
+  useEffect(() => { setDaily(computeDailyReading(profile)); }, [profile]);
+  if (!daily) return null;
+  return (
+    <GlassCard className="p-5 sm:p-6 mb-6" data-testid="daily-reading-card">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <h2 className="text-xl font-semibold flex items-center gap-2" style={{ fontFamily: 'var(--font-mystic)' }}>
+          <span className="text-lg">{daily.moonIcon}</span>
+          <GradientText>Today&rsquo;s Cosmic Reading</GradientText>
+        </h2>
+        <span className="text-xs text-violet-200/40">{daily.dateLabel}</span>
+      </div>
+      <div className="grid sm:grid-cols-3 gap-3">
+        <div className="rounded-xl border border-amber-400/15 bg-amber-500/[0.06] p-4" data-testid="daily-personal-day">
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="text-2xl font-semibold text-amber-100/90">{daily.personalDay}</span>
+            <span className="text-xs uppercase tracking-widest text-violet-200/40">Personal Day &middot; {daily.themeName}</span>
+          </div>
+          <p className="text-xs text-violet-100/60 leading-relaxed">{daily.themeText}</p>
+        </div>
+        <div className="rounded-xl border border-violet-400/15 bg-violet-500/[0.06] p-4" data-testid="daily-moon">
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="text-lg">{daily.moonIcon}</span>
+            <span className="text-xs uppercase tracking-widest text-violet-200/40">{daily.moonPhase}</span>
+          </div>
+          <p className="text-xs text-violet-100/60 leading-relaxed">{daily.moonText}</p>
+        </div>
+        <div className="rounded-xl border border-sky-400/15 bg-sky-500/[0.06] p-4" data-testid="daily-ruler">
+          <div className="flex items-baseline gap-2 mb-1">
+            <span className="text-lg">&#10024;</span>
+            <span className="text-xs uppercase tracking-widest text-violet-200/40">Day of {daily.rulerName}</span>
+          </div>
+          <p className="text-xs text-violet-100/60 leading-relaxed">A day of {daily.rulerText}.</p>
+        </div>
+      </div>
+    </GlassCard>
+  );
+};
+
 // ---------------- COMPATIBILITY READING ----------------
 const ScoreRing = ({ score }) => {
   const r = 52, c = 2 * Math.PI * r;
@@ -450,22 +491,63 @@ const ScoreRing = ({ score }) => {
   );
 };
 
-const CompatibilityView = ({ profile, onBack }) => {
+const CompatibilityView = ({ profile, token, onBack }) => {
   const [pName, setPName] = useState('');
   const [pDate, setPDate] = useState('');
   const [pTime, setPTime] = useState('');
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
+  const [partners, setPartners] = useState([]);
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  const loadPartners = useCallback(() => {
+    apiCall('partners', { token }).then((d) => setPartners(d.partners || [])).catch(() => {});
+  }, [token]);
+  useEffect(() => { loadPartners(); }, [loadPartners]);
+
+  const runReading = (name, date, time, save = true) => {
+    setError('');
+    try {
+      const partner = { fullName: name.trim(), birthDate: date, birthTime: time || null };
+      const rep = computeCompatibility(profile, partner);
+      setReport(rep);
+      if (save) {
+        apiCall('partners', {
+          method: 'POST', token,
+          body: { partnerName: name.trim(), birthDate: date, birthTime: time || null, overall: rep.overall, verdict: rep.verdict },
+        }).then(loadPartners).catch(() => {});
+      }
+    } catch {
+      setError('Could not compute the reading \u2014 check the birth date.');
+    }
+  };
 
   const submit = (e) => {
     e.preventDefault();
-    setError('');
+    if (!pName.trim() || !pDate) { setError('Name and birth date are required'); return; }
+    runReading(pName, pDate, pTime);
+  };
+
+  const openSaved = (p) => {
+    setPName(p.partnerName); setPDate(p.birthDate); setPTime(p.birthTime || '');
+    runReading(p.partnerName, p.birthDate, p.birthTime, false);
+  };
+
+  const removeSaved = async (e, p) => {
+    e.stopPropagation();
+    try { await apiCall(`partners/${p.id}`, { method: 'DELETE', token }); loadPartners(); } catch {}
+  };
+
+  const downloadCompatPdf = async () => {
+    if (!report) return;
+    setPdfBusy(true);
     try {
-      if (!pName.trim() || !pDate) { setError('Name and birth date are required'); return; }
-      const partner = { fullName: pName.trim(), birthDate: pDate, birthTime: pTime || null };
-      setReport(computeCompatibility(profile, partner));
-    } catch {
-      setError('Could not compute the reading \u2014 check the birth date.');
+      const { generateCompatibilityPdf } = await import('@/lib/pdf');
+      await generateCompatibilityPdf({ report });
+    } catch (err) {
+      console.error('Compat PDF failed:', err);
+    } finally {
+      setPdfBusy(false);
     }
   };
 
@@ -514,9 +596,51 @@ const CompatibilityView = ({ profile, onBack }) => {
           {error && <p data-testid="compat-error" className="mt-3 text-sm text-rose-300/90">{error}</p>}
         </GlassCard>
 
+        {partners.length > 0 && (
+          <div className="mb-8" data-testid="saved-partners">
+            <h3 className="text-xs uppercase tracking-[0.25em] text-violet-200/40 mb-3">Saved Bonds</h3>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {partners.map((p) => (
+                <button
+                  key={p.id}
+                  data-testid={`saved-partner-${p.id}`}
+                  onClick={() => openSaved(p)}
+                  className="group text-left rounded-xl border border-white/10 bg-white/[0.03] hover:border-fuchsia-400/30 hover:bg-fuchsia-500/[0.06] p-4 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium text-violet-100/90 truncate">{p.partnerName}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg text-amber-100/90 font-medium">{p.overall}</span>
+                      <span
+                        role="button"
+                        data-testid={`delete-partner-${p.id}`}
+                        onClick={(e) => removeSaved(e, p)}
+                        className="opacity-0 group-hover:opacity-100 text-violet-200/40 hover:text-rose-300 transition-opacity"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </span>
+                    </div>
+                  </div>
+                  <p className="text-xs text-violet-200/50">{p.verdict}</p>
+                  <p className="text-[10px] text-violet-200/30 mt-1">{new Date(p.birthDate + 'T12:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {report && (
           <div data-testid="compat-report">
-            <GlassCard className="p-8 mb-6 text-center">
+            <GlassCard className="p-8 mb-6 text-center relative">
+              <button
+                data-testid="compat-pdf-btn"
+                onClick={downloadCompatPdf}
+                disabled={pdfBusy}
+                className="absolute top-4 right-4 flex items-center gap-1.5 rounded-lg border border-amber-400/25 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 text-xs text-amber-100/90 transition-colors disabled:opacity-50"
+              >
+                {pdfBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                <span className="hidden sm:inline">Keepsake PDF</span>
+              </button>
               <div className="flex items-center justify-center gap-6 mb-6">
                 <div className="text-center">
                   <span className="text-3xl block">{report.glyphA}</span>
@@ -657,6 +781,8 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
             </div>
           </GlassCard>
         </div>
+
+        <DailyReading profile={profile} />
 
         <SoulSynthesis token={token} />
 
@@ -843,7 +969,7 @@ const App = () => {
     return <DetailView modalities={modalities} activeId={activeModality} onSelect={setActiveModality} onBack={() => setView('dashboard')} />;
   }
   if (view === 'compat' && profile) {
-    return <CompatibilityView profile={profile} onBack={() => setView('dashboard')} />;
+    return <CompatibilityView profile={profile} token={token} onBack={() => setView('dashboard')} />;
   }
   if (view === 'dashboard' && profile) {
     return (

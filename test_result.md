@@ -223,15 +223,30 @@ frontend:
           agent: "main"
           comment: "New 'compat' view: partner form -> report with score ring, verdict tier, 6 weighted aspect cards (Sun synastry, Chinese harmony incl. trines/clashes/secret friends, Life Path, Totem clans, Lunar phase, Vedic rashi). Verified via Playwright: Luna x River = 74 'A Growth Alliance'. Also fixed GlassCard to forward data-testid props."
 
+  - task: "Saved Partners API - GET/POST /api/partners, DELETE /api/partners/:id (dedupe upsert by name+date)"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "POST validates partnerName/birthDate/birthTime/overall(0-100), upserts by userId+nameKey+birthDate (201 new, 200 update). GET lists user's partners sorted desc, limit 50, no _id. DELETE partners/:id scoped to user, 404 if missing. Verified via UI automation: save, persist across navigation, reopen. Luna has 2 saved partners (River Sage, Orion Vale)."
+        - working: true
+          agent: "testing"
+          comment: "Comprehensive backend testing completed - ALL 17 Saved Partners API tests PASSED: ✅ Register throwaway user (201), ✅ GET /api/partners without token (401), ✅ GET /api/partners empty list (200), ✅ POST /api/partners without token (401), ✅ POST /api/partners first time (201) with UUID id and no _id, ✅ POST /api/partners upsert (200) same ID with updated overall, ✅ Validation tests (missing partnerName 400, bad date format 400, bad time format 400, overall > 100 400, overall as string 400), ✅ GET /api/partners contains partner (200), ✅ DELETE /api/partners/:id without token (401), ✅ DELETE /api/partners/:id with token (200), ✅ GET /api/partners after delete (empty), ✅ DELETE same ID again (404), ✅ Isolation test: luna@zaura.app has 2 partners (River Sage, Orion Vale), throwaway user's partner never appeared in her list. All CRUD operations working, all validation rules correct, authentication working, user isolation working, no MongoDB ObjectID leakage."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 3
+  test_sequence: 4
   run_ui: false
 
 test_plan:
   current_focus:
-    - "AI Soul Synthesis - POST/GET /api/synthesis (Claude Sonnet via emergentintegrations, cached per profile)"
+    - "Saved Partners API - GET/POST /api/partners, DELETE /api/partners/:id (dedupe upsert by name+date)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -245,3 +260,7 @@ agent_communication:
       message: "Added AI Soul Synthesis endpoint testing to test plan. Test user luna@zaura.app has saved birth profile AND already-cached narrative. COST CONSTRAINT: Limit to AT MOST ONE real LLM generation (only if unavoidable). Do NOT send regenerate:true. Test: login, GET/POST synthesis with/without token, POST without profile (404), verify cached response is instant (<2s), check UUID format and no _id leakage."
     - agent: "testing"
       message: "AI Soul Synthesis backend testing COMPLETE - ALL 6 synthesis tests PASSED (28 total tests, 0 failures). Verified: ✅ Authentication (401 without token for both GET and POST), ✅ GET /api/synthesis returns cached narrative with all required fields (id, userId, profileKey, text, model, createdAt) as UUIDs, ✅ POST /api/synthesis returns cached:true instantly (0.126s < 2s) with same text, ✅ POST without profile returns 404 with correct error message, ✅ No MongoDB ObjectID leakage detected, ✅ No LLM generation triggered (used existing cached narrative). All backend APIs are production-ready. Ready for main agent to summarize and finish."
+    - agent: "main"
+      message: "Added Saved Partners API testing to test plan. Test user luna@zaura.app has 2 saved partners (River Sage, Orion Vale) - DO NOT DELETE. Use NEW throwaway registered user for all create/delete tests. Do NOT call POST /api/synthesis with regenerate. Test: register throwaway user, GET/POST/DELETE /api/partners with/without token, validation (missing partnerName, bad date/time format, overall range/type), upsert logic (same name+date = update with same ID), isolation (throwaway partner never appears in luna's list)."
+    - agent: "testing"
+      message: "Saved Partners API backend testing COMPLETE - ALL 17 partners tests PASSED (45 total tests, 0 failures). Verified: ✅ Register throwaway user (201), ✅ GET /api/partners without token (401), ✅ GET /api/partners empty list (200), ✅ POST /api/partners without token (401), ✅ POST /api/partners first time (201) with UUID id and no _id, ✅ POST /api/partners upsert (200) same ID with updated overall, ✅ All validation rules working (missing partnerName 400, bad date format 400, bad time format 400, overall > 100 400, overall as string 400), ✅ GET /api/partners contains partner (200), ✅ DELETE /api/partners/:id without token (401), ✅ DELETE /api/partners/:id with token (200), ✅ GET /api/partners after delete (empty), ✅ DELETE same ID again (404), ✅ Isolation test: luna@zaura.app has 2 partners (River Sage, Orion Vale), throwaway user's partner never appeared in her list. All CRUD operations working correctly, all validation rules correct, authentication working, user isolation working, no MongoDB ObjectID leakage. All backend APIs are production-ready. Ready for main agent to summarize and finish."
