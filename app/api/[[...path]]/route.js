@@ -243,7 +243,7 @@ export async function POST(request, { params }) {
       if (!user) return json({ error: 'Unauthorized' }, 401);
       if (!process.env.EMERGENT_LLM_KEY) return json({ error: 'AI service is not configured' }, 503);
       const { type, imageBase64 } = body;
-      if (!['palm', 'handwriting'].includes(type)) return json({ error: 'type must be "palm" or "handwriting"' }, 400);
+      if (!['palm', 'handwriting', 'face'].includes(type)) return json({ error: 'type must be "palm", "handwriting" or "face"' }, 400);
       if (!imageBase64 || typeof imageBase64 !== 'string') return json({ error: 'imageBase64 is required' }, 400);
       const b64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
       if (b64.length < 500) return json({ error: 'Image appears empty or corrupted' }, 400);
@@ -269,6 +269,15 @@ If the image clearly does NOT show handwriting (handwritten text), reply startin
 - Letterforms, loops, and any signature if visible
 - A short synthesis of the personality portrait
 280-420 words. One evocative title on the first line, then flowing paragraphs separated by blank lines (a short label like "The Slant \u2014" may open a paragraph). Warm, mystical but grounded. Reflective symbolism only \u2014 never medical, legal or financial conclusions.`,
+        face: `You are Zaura, a master of physiognomy and Chinese mian xiang face reading. Examine this photograph.
+If the image clearly does NOT show a human face, reply starting with exactly "NOT_VALID:" followed by one gentle sentence asking for a clear, front-facing portrait. Otherwise write a face reading for ${firstName} analyzing what you can actually observe:
+- Face shape and its element (the five-element faces: wood/fire/earth/metal/water)
+- Forehead (the heaven region \u2014 early destiny, intellect)
+- Eyebrows and eyes (spirit, emotional nature, how they meet the world)
+- Nose and cheekbones (the human region \u2014 will, wealth of character, drive)
+- Mouth, jaw and chin (the earth region \u2014 warmth, resolve, later-life character)
+- A short synthesis of the character portrait
+280-420 words. One evocative title on the first line, then flowing paragraphs separated by blank lines (a short label like "The Eyes \u2014" may open a paragraph). Warm, celebratory, mystical but grounded \u2014 never judge attractiveness, age, gender, ethnicity or health; read only character symbolism. Never medical, legal or financial conclusions.`,
       };
 
       try {

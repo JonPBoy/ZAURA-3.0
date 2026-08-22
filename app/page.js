@@ -76,6 +76,11 @@ const PHYSICAL_MODALITIES = [
     headline: 'Your soul in ink',
     summary: 'Photograph a handwriting sample and reveal what your slant, pressure and spacing say about your inner nature.',
   },
+  {
+    id: 'face', name: 'Face Reading', category: 'Physical', icon: '\uD83C\uDFAD',
+    headline: 'The character in your features',
+    summary: 'Take a front-facing portrait and let the oracle read your face shape, brow, eyes and jaw in the mian xiang tradition.',
+  },
 ];
 const ALL_CATEGORIES = [...CATEGORIES, 'Physical'];
 
@@ -534,6 +539,11 @@ const PHOTO_META = {
     desc: 'Photograph a few handwritten lines \u2014 a journal entry, a note, or a signature on unlined paper.',
     tip: 'Best results: 3+ lines of natural cursive or print, written in ink, evenly lit.',
   },
+  face: {
+    title: 'Face Reading', icon: '\uD83C\uDFAD',
+    desc: 'Take a relaxed, front-facing portrait in good light. The oracle reads your features in the ancient mian xiang tradition.',
+    tip: 'Best results: face the camera directly, neutral expression, hair away from forehead, soft even light.',
+  },
 };
 
 const PhotoReadingView = ({ token, type, onBack }) => {
@@ -568,7 +578,7 @@ const PhotoReadingView = ({ token, type, onBack }) => {
   const startCamera = async () => {
     setError('');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: type === 'face' ? 'user' : 'environment', width: { ideal: 1280 } } });
       streamRef.current = stream;
       setCameraOn(true);
       setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play().catch(() => {}); } }, 50);
