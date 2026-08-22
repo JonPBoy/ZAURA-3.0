@@ -199,6 +199,30 @@ frontend:
           agent: "main"
           comment: "Verified via screenshot: Western Astrology detail renders with sections + sidebar list of all modalities."
 
+  - task: "Keepsake PDF export (jsPDF client-side: cover + soul story + all 20 readings)"
+    implemented: true
+    working: true
+    file: "lib/pdf.js + app/page.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "Dashboard button fetches cached narrative then generates dark multi-page A4 PDF (cover with cosmic signature, soul story, all 20 readings). Verified via Playwright download: Zaura-Cosmic-Profile-Luna.pdf, 248KB. Text sanitized to Latin-1 for jsPDF fonts."
+
+  - task: "Compatibility Reading view (deterministic 6-system synastry, client-side)"
+    implemented: true
+    working: true
+    file: "lib/zaura.js (computeCompatibility) + app/page.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "New 'compat' view: partner form -> report with score ring, verdict tier, 6 weighted aspect cards (Sun synastry, Chinese harmony incl. trines/clashes/secret friends, Life Path, Totem clans, Lunar phase, Vedic rashi). Verified via Playwright: Luna x River = 74 'A Growth Alliance'. Also fixed GlassCard to forward data-testid props."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"

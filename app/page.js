@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { computeAllModalities, cosmicProfileSummary, geocodeCity, CITIES, CATEGORIES } from '@/lib/zaura';
-import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X } from 'lucide-react';
+import { computeAllModalities, cosmicProfileSummary, geocodeCity, CITIES, CATEGORIES, computeCompatibility } from '@/lib/zaura';
+import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart } from 'lucide-react';
 
 const API = '/api';
 const TOKEN_KEY = 'zaura_token';
@@ -46,8 +46,8 @@ const Stars = () => (
   </div>
 );
 
-const GlassCard = ({ children, className = '' }) => (
-  <div className={`rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-xl shadow-[0_8px_40px_rgba(80,40,180,0.15)] ${className}`}>
+const GlassCard = ({ children, className = '', ...rest }) => (
+  <div className={`rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-xl shadow-[0_8px_40px_rgba(80,40,180,0.15)] ${className}`} {...rest}>
     {children}
   </div>
 );
@@ -426,10 +426,165 @@ const SoulSynthesis = ({ token }) => {
   );
 };
 
+// ---------------- COMPATIBILITY READING ----------------
+const ScoreRing = ({ score }) => {
+  const r = 52, c = 2 * Math.PI * r;
+  const off = c * (1 - score / 100);
+  return (
+    <div className="relative w-32 h-32 mx-auto">
+      <svg viewBox="0 0 120 120" className="w-32 h-32 -rotate-90">
+        <circle cx="60" cy="60" r={r} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="8" />
+        <circle cx="60" cy="60" r={r} fill="none" stroke="url(#zgrad)" strokeWidth="8" strokeLinecap="round" strokeDasharray={c} strokeDashoffset={off} />
+        <defs>
+          <linearGradient id="zgrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#a78bfa" />
+            <stop offset="100%" stopColor="#f0d296" />
+          </linearGradient>
+        </defs>
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-3xl font-semibold" data-testid="compat-score">{score}</span>
+        <span className="text-[9px] uppercase tracking-widest text-violet-200/40">of 100</span>
+      </div>
+    </div>
+  );
+};
+
+const CompatibilityView = ({ profile, onBack }) => {
+  const [pName, setPName] = useState('');
+  const [pDate, setPDate] = useState('');
+  const [pTime, setPTime] = useState('');
+  const [report, setReport] = useState(null);
+  const [error, setError] = useState('');
+
+  const submit = (e) => {
+    e.preventDefault();
+    setError('');
+    try {
+      if (!pName.trim() || !pDate) { setError('Name and birth date are required'); return; }
+      const partner = { fullName: pName.trim(), birthDate: pDate, birthTime: pTime || null };
+      setReport(computeCompatibility(profile, partner));
+    } catch {
+      setError('Could not compute the reading \u2014 check the birth date.');
+    }
+  };
+
+  return (
+    <div className="relative min-h-screen">
+      <Stars />
+      <header className="relative border-b border-white/5 bg-[#070616]/80 backdrop-blur-lg sticky top-0 z-20">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+          <button data-testid="compat-back-btn" onClick={onBack} className="flex items-center gap-1.5 text-sm text-violet-200/70 hover:text-white transition-colors">
+            <ChevronLeft className="w-4 h-4" /> Dashboard
+          </button>
+          <span className="text-lg tracking-[0.2em]" style={{ fontFamily: 'var(--font-mystic)' }}>
+            <GradientText>ZAURA</GradientText>
+          </span>
+          <span className="w-24" />
+        </div>
+      </header>
+
+      <div className="relative max-w-4xl mx-auto px-4 sm:px-6 py-10">
+        <div className="text-center mb-8">
+          <Heart className="w-6 h-6 text-fuchsia-300 mx-auto mb-2" />
+          <h1 className="text-4xl font-semibold mb-2" style={{ fontFamily: 'var(--font-mystic)' }}>
+            <GradientText>Compatibility Reading</GradientText>
+          </h1>
+          <p className="text-sm text-violet-200/60">Six ancient systems weigh the bond between {profile.fullName.split(' ')[0]} and another soul</p>
+        </div>
+
+        <GlassCard className="p-6 sm:p-8 mb-8">
+          <form onSubmit={submit} className="grid sm:grid-cols-[1fr_170px_140px_auto] gap-4 items-end">
+            <div>
+              <label className="text-xs uppercase tracking-widest text-violet-200/50 mb-1.5 block">Their name</label>
+              <input data-testid="compat-name-input" value={pName} onChange={(e) => setPName(e.target.value)} placeholder="e.g. River Sage" className="w-full rounded-xl bg-white/[0.05] border border-white/10 px-4 py-3 text-sm placeholder:text-violet-200/30 focus:outline-none focus:border-violet-400/50" />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-widest text-violet-200/50 mb-1.5 block">Birth date</label>
+              <input data-testid="compat-date-input" type="date" value={pDate} onChange={(e) => setPDate(e.target.value)} className="w-full rounded-xl bg-white/[0.05] border border-white/10 px-4 py-3 text-sm focus:outline-none focus:border-violet-400/50 [color-scheme:dark]" />
+            </div>
+            <div>
+              <label className="text-xs uppercase tracking-widest text-violet-200/50 mb-1.5 block">Time <span className="normal-case text-violet-200/30">(opt.)</span></label>
+              <input data-testid="compat-time-input" type="time" value={pTime} onChange={(e) => setPTime(e.target.value)} className="w-full rounded-xl bg-white/[0.05] border border-white/10 px-4 py-3 text-sm focus:outline-none focus:border-violet-400/50 [color-scheme:dark]" />
+            </div>
+            <button data-testid="compat-submit-btn" className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 px-5 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2">
+              <Heart className="w-4 h-4" /> Read Us
+            </button>
+          </form>
+          {error && <p data-testid="compat-error" className="mt-3 text-sm text-rose-300/90">{error}</p>}
+        </GlassCard>
+
+        {report && (
+          <div data-testid="compat-report">
+            <GlassCard className="p-8 mb-6 text-center">
+              <div className="flex items-center justify-center gap-6 mb-6">
+                <div className="text-center">
+                  <span className="text-3xl block">{report.glyphA}</span>
+                  <p className="text-sm mt-1 text-violet-100/80">{report.nameA}</p>
+                  <p className="text-xs text-violet-200/40">{report.sunA}</p>
+                </div>
+                <ScoreRing score={report.overall} />
+                <div className="text-center">
+                  <span className="text-3xl block">{report.glyphB}</span>
+                  <p className="text-sm mt-1 text-violet-100/80">{report.nameB}</p>
+                  <p className="text-xs text-violet-200/40">{report.sunB}</p>
+                </div>
+              </div>
+              <h2 className="text-2xl font-semibold mb-2" style={{ fontFamily: 'var(--font-mystic)' }}>
+                <GradientText>{report.verdict}</GradientText>
+              </h2>
+              <p className="text-sm text-violet-100/70 max-w-xl mx-auto leading-relaxed">{report.verdictText}</p>
+            </GlassCard>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              {report.aspects.map((a) => (
+                <GlassCard key={a.id} className="p-5" data-testid={`compat-aspect-${a.id}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">{a.icon}</span>
+                      <h3 className="text-sm font-medium">{a.name}</h3>
+                    </div>
+                    <span className="text-lg text-amber-100/90 font-medium">{a.score}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-white/[0.06] mb-3 overflow-hidden">
+                    <div className="h-full rounded-full bg-gradient-to-r from-violet-400 to-amber-200" style={{ width: `${a.score}%` }} />
+                  </div>
+                  <p className="text-sm text-violet-200/80 mb-1.5" style={{ fontFamily: 'var(--font-mystic)' }}>{a.headline}</p>
+                  <p className="text-xs text-violet-100/60 leading-relaxed">{a.text}</p>
+                </GlassCard>
+              ))}
+            </div>
+            <p className="text-center text-xs text-violet-200/30 mt-8">For reflection, not prediction &mdash; every bond is ultimately written by its keepers. &#10024;</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ---------------- DASHBOARD ----------------
-const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, onLogout }) => {
+const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, onLogout, onCompat }) => {
   const [filter, setFilter] = useState('All');
+  const [pdfBusy, setPdfBusy] = useState(false);
   const shown = filter === 'All' ? modalities : modalities.filter((m) => m.category === filter);
+
+  const downloadPdf = async () => {
+    setPdfBusy(true);
+    try {
+      let narrativeText = null;
+      try {
+        const d = await apiCall('synthesis', { token });
+        narrativeText = d.narrative?.text || null;
+      } catch {}
+      const { generateKeepsakePdf } = await import('@/lib/pdf');
+      await generateKeepsakePdf({ profile, modalities, summary, narrativeText });
+    } catch (e) {
+      console.error('PDF generation failed:', e);
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   return (
     <div className="relative min-h-screen">
       <Stars />
@@ -469,7 +624,7 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
               Born {new Date(profile.birthDate + 'T12:00:00').toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
               {profile.birthTime ? ` at ${profile.birthTime}` : ''}{profile.birthCity ? ` in ${profile.birthCity}` : ''} &mdash; a {summary.sunSign} soul of the {summary.element} element. Below, twenty ancient systems each read the same sacred moment.
             </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center mb-5">
               {[
                 ['Sun Sign', `${summary.sunGlyph} ${summary.sunSign}`],
                 ['Life Path', summary.headlines.lifePath?.replace('Life Path ', '')],
@@ -481,6 +636,24 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
                   <p className="text-[10px] uppercase tracking-widest text-violet-200/40 mt-0.5">{label}</p>
                 </div>
               ))}
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                data-testid="download-pdf-btn"
+                onClick={downloadPdf}
+                disabled={pdfBusy}
+                className="flex items-center gap-2 rounded-xl border border-amber-400/25 bg-amber-500/10 hover:bg-amber-500/20 px-4 py-2.5 text-sm text-amber-100/90 transition-colors disabled:opacity-50"
+              >
+                {pdfBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                {pdfBusy ? 'Weaving pages...' : 'Download Keepsake PDF'}
+              </button>
+              <button
+                data-testid="compatibility-btn"
+                onClick={onCompat}
+                className="flex items-center gap-2 rounded-xl border border-fuchsia-400/25 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 px-4 py-2.5 text-sm text-fuchsia-100/90 transition-colors"
+              >
+                <Heart className="w-4 h-4" /> Compatibility Reading
+              </button>
             </div>
           </GlassCard>
         </div>
@@ -669,6 +842,9 @@ const App = () => {
   if (view === 'detail' && profile) {
     return <DetailView modalities={modalities} activeId={activeModality} onSelect={setActiveModality} onBack={() => setView('dashboard')} />;
   }
+  if (view === 'compat' && profile) {
+    return <CompatibilityView profile={profile} onBack={() => setView('dashboard')} />;
+  }
   if (view === 'dashboard' && profile) {
     return (
       <Dashboard
@@ -680,6 +856,7 @@ const App = () => {
         onOpen={(id) => { setActiveModality(id); setView('detail'); }}
         onEdit={() => setView('birth')}
         onLogout={handleLogout}
+        onCompat={() => setView('compat')}
       />
     );
   }
