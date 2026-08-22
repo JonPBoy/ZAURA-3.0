@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { computeAllModalities, cosmicProfileSummary, geocodeCity, CITIES, CATEGORIES, computeCompatibility, computeDailyReading } from '@/lib/zaura';
-import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart, Trash2, MessageCircle, Send, Zap } from 'lucide-react';
+import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart, Trash2, MessageCircle, Send, Zap, Camera, Upload, Share2 } from 'lucide-react';
 
 const API = '/api';
 const TOKEN_KEY = 'zaura_token';
@@ -62,7 +62,22 @@ const CAT_COLORS = {
   Esoteric: 'from-fuchsia-500/15 to-purple-500/10 border-fuchsia-400/20',
   Personality: 'from-emerald-500/15 to-teal-500/10 border-emerald-400/20',
   Spiritual: 'from-sky-500/15 to-cyan-500/10 border-sky-400/20',
+  Physical: 'from-rose-500/15 to-pink-500/10 border-rose-400/20',
 };
+
+const PHYSICAL_MODALITIES = [
+  {
+    id: 'palm', name: 'Palm Reading', category: 'Physical', icon: '\uD83D\uDD90\uFE0F',
+    headline: 'The map in your hand',
+    summary: 'Photograph your palm and let the oracle read your heart, head and life lines, mounts and hand element.',
+  },
+  {
+    id: 'handwriting', name: 'Handwriting Analysis', category: 'Physical', icon: '\u270D\uFE0F',
+    headline: 'Your soul in ink',
+    summary: 'Photograph a handwriting sample and reveal what your slant, pressure and spacing say about your inner nature.',
+  },
+];
+const ALL_CATEGORIES = [...CATEGORIES, 'Physical'];
 
 // ---------------- AUTH VIEW ----------------
 const AuthView = ({ onAuth }) => {
@@ -507,6 +522,208 @@ const DailyReading = ({ profile }) => {
   );
 };
 
+// ---------------- PHOTO READING (Palm / Handwriting) ----------------
+const PHOTO_META = {
+  palm: {
+    title: 'Palm Reading', icon: '\uD83D\uDD90\uFE0F',
+    desc: 'Hold your dominant palm open, flat and well-lit. The oracle will read your lines, mounts and hand element.',
+    tip: 'Best results: bright light, palm filling the frame, fingers slightly spread.',
+  },
+  handwriting: {
+    title: 'Handwriting Analysis', icon: '\u270D\uFE0F',
+    desc: 'Photograph a few handwritten lines \u2014 a journal entry, a note, or a signature on unlined paper.',
+    tip: 'Best results: 3+ lines of natural cursive or print, written in ink, evenly lit.',
+  },
+};
+
+const PhotoReadingView = ({ token, type, onBack }) => {
+  const meta = PHOTO_META[type];
+  const [reading, setReading] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [b64, setB64] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [cameraOn, setCameraOn] = useState(false);
+  const [showCapture, setShowCapture] = useState(false);
+  const videoRef = React.useRef(null);
+  const streamRef = React.useRef(null);
+  const fileRef = React.useRef(null);
+
+  useEffect(() => {
+    apiCall('photo-readings', { token })
+      .then((d) => setReading((d.readings || []).find((r) => r.type === type) || null))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+    return () => stopCamera();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, type]);
+
+  const stopCamera = () => {
+    streamRef.current?.getTracks?.().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCameraOn(false);
+  };
+
+  const startCamera = async () => {
+    setError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } } });
+      streamRef.current = stream;
+      setCameraOn(true);
+      setTimeout(() => { if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.play().catch(() => {}); } }, 50);
+    } catch {
+      setError('Camera unavailable \u2014 you can upload a photo instead.');
+    }
+  };
+
+  const capture = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement('canvas');
+    const scale = Math.min(1, 1024 / Math.max(video.videoWidth, video.videoHeight));
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+    setPreview(dataUrl);
+    setB64(dataUrl.replace(/^data:image\/\w+;base64,/, ''));
+    stopCamera();
+  };
+
+  const onFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError('');
+    try {
+      const { fileToBase64 } = await import('@/lib/share');
+      const raw = await fileToBase64(file, 1024);
+      setB64(raw);
+      setPreview(`data:image/jpeg;base64,${raw}`);
+      stopCamera();
+    } catch {
+      setError('Could not read that image \u2014 try another file.');
+    }
+    e.target.value = '';
+  };
+
+  const analyze = async () => {
+    if (!b64) return;
+    setBusy(true); setError('');
+    try {
+      const d = await apiCall('photo-reading', { method: 'POST', token, body: { type, imageBase64: b64 } });
+      setReading(d.reading);
+      setShowCapture(false);
+      setPreview(null); setB64(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const lines = reading?.text ? reading.text.split('\n').map((l) => l.trim()).filter(Boolean) : [];
+  const title = (lines[0] || '').replace(/^[#*\s]+/, '').replace(/[*\s]+$/, '');
+  const paras = lines.slice(1).map((p) => p.replace(/\*\*/g, ''));
+  const captureMode = showCapture || (!reading && loaded);
+
+  return (
+    <div className="relative min-h-screen">
+      <Stars />
+      <header className="relative border-b border-white/5 bg-[#070616]/80 backdrop-blur-lg sticky top-0 z-20">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+          <button data-testid="photo-back-btn" onClick={() => { stopCamera(); onBack(); }} className="flex items-center gap-1.5 text-sm text-violet-200/70 hover:text-white transition-colors">
+            <ChevronLeft className="w-4 h-4" /> Dashboard
+          </button>
+          <span className="text-lg tracking-[0.2em]" style={{ fontFamily: 'var(--font-mystic)' }}>
+            <GradientText>ZAURA</GradientText>
+          </span>
+          <span className="w-24" />
+        </div>
+      </header>
+
+      <div className="relative max-w-3xl mx-auto px-4 sm:px-6 py-10">
+        <div className="text-center mb-8">
+          <span className="text-4xl block mb-2">{meta.icon}</span>
+          <h1 className="text-4xl font-semibold mb-2" style={{ fontFamily: 'var(--font-mystic)' }}>
+            <GradientText>{meta.title}</GradientText>
+          </h1>
+          <p className="text-sm text-violet-200/60 max-w-md mx-auto">{meta.desc}</p>
+        </div>
+
+        {busy && (
+          <GlassCard className="p-10 text-center" data-testid="photo-analyzing">
+            <Loader2 className="w-6 h-6 animate-spin text-violet-300 mx-auto mb-3" />
+            <p className="text-sm text-violet-200/60 italic">The oracle is studying your {type === 'palm' ? 'palm' : 'handwriting'}... this takes a moment.</p>
+          </GlassCard>
+        )}
+
+        {!busy && reading && !showCapture && (
+          <GlassCard className="p-6 sm:p-10" data-testid="photo-reading-result">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <h2 className="text-2xl text-amber-100/90 italic" style={{ fontFamily: 'var(--font-mystic)' }}>{title}</h2>
+              <button data-testid="photo-new-btn" onClick={() => { setShowCapture(true); setError(''); }} className="text-xs rounded-lg border border-white/10 px-3 py-1.5 text-violet-200/60 hover:text-violet-100 hover:border-violet-400/40 transition-colors flex items-center gap-1.5">
+                <Camera className="w-3.5 h-3.5" /> New photo
+              </button>
+            </div>
+            <div className="space-y-4 text-sm leading-relaxed text-violet-100/80">
+              {paras.map((p, i) => <p key={i}>{p}</p>)}
+            </div>
+            <p className="mt-5 text-[10px] uppercase tracking-widest text-violet-200/30">Read {new Date(reading.createdAt).toLocaleString()} &middot; for reflection, not prediction</p>
+          </GlassCard>
+        )}
+
+        {!busy && captureMode && (
+          <GlassCard className="p-6 sm:p-8" data-testid="photo-capture-panel">
+            {cameraOn && (
+              <div className="mb-4">
+                <video ref={videoRef} playsInline muted className="w-full rounded-xl border border-white/10 bg-black" data-testid="photo-video" />
+                <div className="flex gap-3 mt-3 justify-center">
+                  <button data-testid="photo-capture-btn" onClick={capture} className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 px-5 py-2.5 text-sm font-medium transition-colors flex items-center gap-2">
+                    <Camera className="w-4 h-4" /> Capture
+                  </button>
+                  <button onClick={stopCamera} className="rounded-xl border border-white/10 px-4 py-2.5 text-sm text-violet-200/60 hover:text-violet-100 transition-colors">Cancel</button>
+                </div>
+              </div>
+            )}
+            {!cameraOn && preview && (
+              <div className="mb-4 text-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={preview} alt="preview" className="max-h-72 mx-auto rounded-xl border border-white/10" data-testid="photo-preview" />
+                <div className="flex flex-wrap gap-3 mt-4 justify-center">
+                  <button data-testid="photo-analyze-btn" onClick={analyze} className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 px-6 py-3 text-sm font-medium transition-colors flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" /> Reveal My Reading
+                  </button>
+                  <button onClick={() => { setPreview(null); setB64(null); }} className="rounded-xl border border-white/10 px-4 py-3 text-sm text-violet-200/60 hover:text-violet-100 transition-colors">Retake</button>
+                </div>
+              </div>
+            )}
+            {!cameraOn && !preview && (
+              <div className="text-center py-6">
+                <div className="flex flex-wrap gap-3 justify-center mb-4">
+                  <button data-testid="photo-camera-btn" onClick={startCamera} className="rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 px-5 py-3 text-sm font-medium transition-colors flex items-center gap-2">
+                    <Camera className="w-4 h-4" /> Take Photo
+                  </button>
+                  <button data-testid="photo-upload-btn" onClick={() => fileRef.current?.click()} className="rounded-xl border border-violet-400/25 bg-violet-500/10 hover:bg-violet-500/20 px-5 py-3 text-sm text-violet-100/90 transition-colors flex items-center gap-2">
+                    <Upload className="w-4 h-4" /> Upload Photo
+                  </button>
+                  <input ref={fileRef} data-testid="photo-file-input" type="file" accept="image/*" onChange={onFile} className="hidden" />
+                </div>
+                <p className="text-xs text-violet-200/40">{meta.tip}</p>
+                <p className="text-[10px] text-violet-200/30 mt-2">Your photo is analyzed once and never stored.</p>
+                {reading && (
+                  <button onClick={() => setShowCapture(false)} className="mt-4 text-xs text-violet-200/50 hover:text-violet-100 underline underline-offset-4">Back to my current reading</button>
+                )}
+              </div>
+            )}
+            {error && <p data-testid="photo-error" className="mt-2 text-sm text-rose-300/90 text-center">{error}</p>}
+          </GlassCard>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ---------------- ORACLE CHAT ----------------
 const OracleChat = ({ token, profile, onBack }) => {
   const [messages, setMessages] = useState([]);
@@ -840,8 +1057,15 @@ const CompatibilityView = ({ profile, token, onBack }) => {
     if (!report) return;
     setPdfBusy(true);
     try {
+      let storyText = null;
+      if (currentPartnerId) {
+        try {
+          const d = await apiCall(`bond-story?partnerId=${currentPartnerId}`, { token });
+          storyText = d.story?.text || null;
+        } catch {}
+      }
       const { generateCompatibilityPdf } = await import('@/lib/pdf');
-      await generateCompatibilityPdf({ report });
+      await generateCompatibilityPdf({ report, storyText });
     } catch (err) {
       console.error('Compat PDF failed:', err);
     } finally {
@@ -988,10 +1212,23 @@ const CompatibilityView = ({ profile, token, onBack }) => {
 };
 
 // ---------------- DASHBOARD ----------------
-const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, onLogout, onCompat, onOracle }) => {
+const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, onLogout, onCompat, onOracle, onPhoto }) => {
   const [filter, setFilter] = useState('All');
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
   const shown = filter === 'All' ? modalities : modalities.filter((m) => m.category === filter);
+
+  const shareCard = async () => {
+    setShareBusy(true);
+    try {
+      const { generateShareCard } = await import('@/lib/share');
+      await generateShareCard({ profile, summary });
+    } catch (e) {
+      console.error('Share card failed:', e);
+    } finally {
+      setShareBusy(false);
+    }
+  };
 
   const downloadPdf = async () => {
     setPdfBusy(true);
@@ -1086,6 +1323,14 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
               >
                 <MessageCircle className="w-4 h-4" /> Ask the Oracle
               </button>
+              <button
+                data-testid="share-card-btn"
+                onClick={shareCard}
+                disabled={shareBusy}
+                className="flex items-center gap-2 rounded-xl border border-sky-400/25 bg-sky-500/10 hover:bg-sky-500/20 px-4 py-2.5 text-sm text-sky-100/90 transition-colors disabled:opacity-50"
+              >
+                {shareBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />} Share Card
+              </button>
             </div>
           </GlassCard>
         </div>
@@ -1096,7 +1341,7 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
 
         {/* filters */}
         <div className="flex flex-wrap gap-2 mb-6" data-testid="category-filters">
-          {CATEGORIES.map((c) => (
+          {ALL_CATEGORIES.map((c) => (
             <button
               key={c}
               data-testid={`filter-${c.toLowerCase()}`}
@@ -1120,6 +1365,22 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
               <div className="flex items-start justify-between mb-3">
                 <span className="text-2xl">{m.icon}</span>
                 <span className="text-[10px] uppercase tracking-widest text-violet-200/40 border border-white/10 rounded-full px-2 py-0.5">{m.category}</span>
+              </div>
+              <h3 className="text-lg font-medium mb-0.5" style={{ fontFamily: 'var(--font-mystic)' }}>{m.name}</h3>
+              <p className="text-sm text-amber-100/90 mb-1.5">{m.headline}</p>
+              <p className="text-xs text-violet-100/50 leading-relaxed line-clamp-2">{m.summary}</p>
+            </button>
+          ))}
+          {(filter === 'All' || filter === 'Physical') && PHYSICAL_MODALITIES.map((m) => (
+            <button
+              key={m.id}
+              data-testid={`modality-card-${m.id}`}
+              onClick={() => onPhoto(m.id)}
+              className={`text-left rounded-2xl border bg-gradient-to-br p-5 transition-transform duration-200 hover:-translate-y-1 hover:shadow-[0_12px_40px_rgba(220,80,140,0.25)] ${CAT_COLORS.Physical}`}
+            >
+              <div className="flex items-start justify-between mb-3">
+                <span className="text-2xl">{m.icon}</span>
+                <span className="text-[10px] uppercase tracking-widest text-rose-200/50 border border-rose-400/20 rounded-full px-2 py-0.5 flex items-center gap-1"><Camera className="w-2.5 h-2.5" /> {m.category}</span>
               </div>
               <h3 className="text-lg font-medium mb-0.5" style={{ fontFamily: 'var(--font-mystic)' }}>{m.name}</h3>
               <p className="text-sm text-amber-100/90 mb-1.5">{m.headline}</p>
@@ -1227,6 +1488,7 @@ const App = () => {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [activeModality, setActiveModality] = useState(null);
+  const [photoType, setPhotoType] = useState(null);
 
   useEffect(() => {
     const t = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
@@ -1276,6 +1538,9 @@ const App = () => {
   if (view === 'detail' && profile) {
     return <DetailView modalities={modalities} activeId={activeModality} onSelect={setActiveModality} onBack={() => setView('dashboard')} />;
   }
+  if (view === 'photo' && profile && photoType) {
+    return <PhotoReadingView token={token} type={photoType} onBack={() => setView('dashboard')} />;
+  }
   if (view === 'oracle' && profile) {
     return <OracleChat token={token} profile={profile} onBack={() => setView('dashboard')} />;
   }
@@ -1295,6 +1560,7 @@ const App = () => {
         onLogout={handleLogout}
         onCompat={() => setView('compat')}
         onOracle={() => setView('oracle')}
+        onPhoto={(t) => { setPhotoType(t); setView('photo'); }}
       />
     );
   }

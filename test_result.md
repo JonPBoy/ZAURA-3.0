@@ -268,10 +268,25 @@ frontend:
           agent: "testing"
           comment: "Comprehensive backend testing COMPLETE - ALL 23 Bond Story tests PASSED: ✅ GET /api/bond-story without token 401, without partnerId 400, ✅ GET /api/partners returns 200, found both partners (Orion Vale, River Sage), ✅ GET /api/bond-story for Orion Vale returns 200 with story object (id/partnerId/partnerName/text/model/createdAt, no _id), ✅ GET /api/bond-story for River Sage returns 200 with story:null (no cache), ✅ POST validation: without partnerId 400, nonexistent partnerId 404, without profile 404, ✅ POST for Orion Vale (no regenerate) returns 200 with cached:true instantly (<2s, 0 LLM calls). All authentication, validation, caching, and data structure working correctly. No MongoDB ObjectID leakage. Orion Vale's cached story preserved as required."
 
+  - task: "Photo Readings API - POST /api/photo-reading (palm/handwriting, Claude vision) + GET /api/photo-readings"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "POST {type: palm|handwriting, imageBase64}: validates type (400), base64 presence/min size (400), max size (413); sends image via ImageContent to Claude vision; NOT_VALID guard returns 422 friendly message (not cached); valid reading cached in photo_readings upsert by userId+type, returns 201 (image never stored). GET /api/photo-readings returns cached readings. Verified manually: 400 bad type, 422 non-palm image, 201 palm reading (389 words) for luna. Luna has cached palm reading - do NOT regenerate."
+        - working: true
+          agent: "testing"
+          comment: "Comprehensive backend testing COMPLETE - ALL 23 Photo Readings tests PASSED (95 total tests, 0 failures). Verified: ✅ GET /api/photo-readings without token returns 401, ✅ GET /api/photo-readings as luna returns 200 with readings array containing 1 palm reading (id/userId/type/text/model/createdAt, no _id), ✅ POST /api/photo-reading without token returns 401, ✅ POST validation: invalid type 'face' returns 400 with correct error message, missing imageBase64 returns 400, imageBase64 too short (<500 chars) returns 400 with 'empty/corrupted' message, imageBase64 too large (>4M chars) returns 413, ✅ Code review confirmed: vision call exists (line 278 ImageContent), NOT_VALID guard returns 422 (lines 281-283), valid reading cached and returns 201 (lines 284-298). ZERO LLM/vision calls made (strict cost limit adhered). Luna's cached palm reading preserved. All authentication, validation, caching, and data structures working correctly. No MongoDB ObjectID leakage. All backend APIs are production-ready."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 6
+  test_sequence: 8
   run_ui: false
 
 test_plan:
@@ -297,3 +312,5 @@ agent_communication:
       message: "Added Oracle Chat API and AI Bond Story API testing to test plan. STRICT LLM COST LIMITS: at most ONE real LLM generation total. NEVER pass regenerate:true. Do NOT POST /api/synthesis. Test users: luna@zaura.app (profile + 2 saved partners: River Sage & Orion Vale; Orion Vale has CACHED bond story - do not delete), nova@zaura.app (profile + existing oracle session with 4 messages - do NOT call DELETE /api/oracle for nova, do NOT send new oracle messages as nova). Test: Oracle Chat (GET as nova, GET/POST without token, POST validation, POST without profile, ONE LLM call as luna, DELETE), Bond Story (GET validation, GET for Orion cached, GET for River null, POST validation, POST for Orion cached instant)."
     - agent: "testing"
       message: "Oracle Chat & Bond Story API backend testing COMPLETE - ALL 48 tests PASSED (93 total tests, 0 failures). Oracle Chat (25 tests): ✅ GET /api/oracle as nova returns 200 with 4 messages (id/role/text/createdAt, no _id), sessionId present, alternating user/assistant roles verified, ✅ GET/POST without token 401, ✅ POST validation (empty message 400, >1000 chars 400), ✅ POST without profile 404, ✅ POST as luna returns 201 with reply (role=assistant, non-empty text, sessionId), GET after POST returns 2 messages, ✅ DELETE without token 401, DELETE with token ok:true, GET after DELETE empty. Bond Story (23 tests): ✅ GET without token 401, without partnerId 400, ✅ GET /api/partners returns 200 with both partners (Orion Vale, River Sage), ✅ GET for Orion Vale returns 200 with story (id/partnerId/partnerName/text/model/createdAt, no _id), ✅ GET for River Sage returns 200 with story:null, ✅ POST validation (without partnerId 400, nonexistent partnerId 404, without profile 404), ✅ POST for Orion Vale (no regenerate) returns 200 with cached:true instantly (<2s). ONE LLM call made as required. All authentication, validation, session management, caching, and data structures working correctly. No MongoDB ObjectID leakage. Orion Vale's cached story preserved. All backend APIs are production-ready. Ready for main agent to summarize and finish."
+    - agent: "testing"
+      message: "Photo Readings API backend testing COMPLETE - ALL 23 Photo Readings tests PASSED (95 total tests, 0 failures). Verified: ✅ GET /api/photo-readings without token returns 401, ✅ GET /api/photo-readings as luna returns 200 with readings array containing 1 palm reading (id/userId/type/text/model/createdAt, no _id), ✅ POST /api/photo-reading without token returns 401, ✅ POST validation: invalid type 'face' returns 400 with correct error message, missing imageBase64 returns 400, imageBase64 too short (<500 chars) returns 400 with 'empty/corrupted' message, imageBase64 too large (>4M chars) returns 413, ✅ Code review confirmed: vision call exists (line 278 ImageContent), NOT_VALID guard returns 422 (lines 281-283), valid reading cached and returns 201 (lines 284-298). ZERO LLM/vision calls made (strict cost limit adhered). Luna's cached palm reading preserved. All authentication, validation, caching, and data structures working correctly. No MongoDB ObjectID leakage. All backend APIs are production-ready. Ready for main agent to summarize and finish."

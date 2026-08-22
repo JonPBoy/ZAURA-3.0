@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { MongoClient } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
-import { LlmChat, UserMessage } from 'emergentintegrations';
+import { LlmChat, UserMessage, ImageContent } from 'emergentintegrations';
 import { computeAllModalities, computeCompatibility } from '@/lib/zaura';
 
 // ---------- MongoDB connection (reused across invocations) ----------
@@ -75,6 +75,14 @@ export async function GET(request, { params }) {
       if (!user) return json({ error: 'Unauthorized' }, 401);
       const profile = await database.collection('birth_profiles').findOne({ userId: user.id }, { projection: { _id: 0 } });
       return json({ profile: profile || null });
+    }
+
+    if (route === 'photo-readings') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      const readings = await database.collection('photo_readings')
+        .find({ userId: user.id }, { projection: { _id: 0 } }).toArray();
+      return json({ readings });
     }
 
     if (route === 'oracle') {
@@ -227,6 +235,72 @@ export async function POST(request, { params }) {
       await database.collection('partners').updateOne(key, { $set: doc }, { upsert: true });
       const { _id, ...clean } = doc;
       return json({ partner: clean }, existing ? 200 : 201);
+    }
+
+    // ---- PHOTO READINGS: PALM + HANDWRITING (Claude vision) ----
+    if (route === 'photo-reading') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      if (!process.env.EMERGENT_LLM_KEY) return json({ error: 'AI service is not configured' }, 503);
+      const { type, imageBase64 } = body;
+      if (!['palm', 'handwriting'].includes(type)) return json({ error: 'type must be "palm" or "handwriting"' }, 400);
+      if (!imageBase64 || typeof imageBase64 !== 'string') return json({ error: 'imageBase64 is required' }, 400);
+      const b64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+      if (b64.length < 500) return json({ error: 'Image appears empty or corrupted' }, 400);
+      if (b64.length > 4_000_000) return json({ error: 'Image too large \u2014 please use a smaller photo (max ~3MB)' }, 413);
+
+      const profile = await database.collection('birth_profiles').findOne({ userId: user.id });
+      const firstName = profile?.fullName?.split(' ')[0] || 'the seeker';
+
+      const PROMPTS = {
+        palm: `You are Zaura, a master palmist with decades of chirology practice. Examine this photograph.
+If the image clearly does NOT show a human palm/hand, reply starting with exactly "NOT_VALID:" followed by one gentle sentence asking for a clear palm photo. Otherwise write a palm reading for ${firstName}:
+- Hand shape and its element (earth/air/fire/water hands)
+- Heart line (emotions and love nature)
+- Head line (mind and decision style)
+- Life line (vitality and life force \u2014 NEVER lifespan)
+- Fate/destiny line if visible, and any notable mounts or markings
+- A short synthesis weaving it together
+280-420 words. One evocative title on the first line, then flowing paragraphs separated by blank lines (a short label like "The Heart Line \u2014" may open a paragraph). Warm, mystical but grounded. Reflective symbolism only \u2014 never health, lifespan, legal or financial predictions.`,
+        handwriting: `You are Zaura, a master graphologist. Examine this photograph of handwriting.
+If the image clearly does NOT show handwriting (handwritten text), reply starting with exactly "NOT_VALID:" followed by one gentle sentence asking for a clear handwriting sample. Otherwise write a graphology reading for ${firstName} analyzing what you can actually observe:
+- Slant (emotional expression), size (self-perception), pressure/stroke weight (energy)
+- Spacing between words/lines (social boundaries), baseline (mood stability)
+- Letterforms, loops, and any signature if visible
+- A short synthesis of the personality portrait
+280-420 words. One evocative title on the first line, then flowing paragraphs separated by blank lines (a short label like "The Slant \u2014" may open a paragraph). Warm, mystical but grounded. Reflective symbolism only \u2014 never medical, legal or financial conclusions.`,
+      };
+
+      try {
+        const chat = new LlmChat(process.env.EMERGENT_LLM_KEY, uuidv4(), 'You are Zaura, a mystical yet observant reader of physical forms. You describe only what is visible and interpret it symbolically.')
+          .withModel(process.env.LLM_PROVIDER || 'anthropic', process.env.LLM_MODEL || 'claude-sonnet-4-6')
+          .withParams({ temperature: 0.7 });
+        const raw = await chat.sendMessage(new UserMessage({ text: PROMPTS[type], file_contents: [new ImageContent(b64)] }));
+        const text = (typeof raw === 'string' ? raw : raw?.content || '').trim();
+        if (!text) throw new Error('LLM returned no text');
+        if (text.startsWith('NOT_VALID:')) {
+          return json({ error: text.replace('NOT_VALID:', '').trim() || `That doesn\u2019t look like a ${type === 'palm' ? 'palm' : 'handwriting sample'} \u2014 try a clearer photo.` }, 422);
+        }
+        const doc = {
+          id: uuidv4(),
+          userId: user.id,
+          type,
+          text,
+          model: `${process.env.LLM_PROVIDER || 'anthropic'}/${process.env.LLM_MODEL || 'claude-sonnet-4-6'}`,
+          createdAt: new Date().toISOString(),
+        };
+        await database.collection('photo_readings').updateOne(
+          { userId: user.id, type },
+          { $set: doc },
+          { upsert: true }
+        );
+        const { _id, ...clean } = doc;
+        return json({ reading: clean }, 201);
+      } catch (llmErr) {
+        console.error('Photo reading LLM error:', llmErr?.message);
+        const status = /credit|quota|rate|429/i.test(llmErr?.message || '') ? 429 : 502;
+        return json({ error: status === 429 ? 'The oracle is resting (AI service busy or out of credits). Try again shortly.' : 'The reading clouded over \u2014 please try again with a clear, well-lit photo.' }, status);
+      }
     }
 
     // ---- ORACLE CHAT (multi-turn, session-based) ----
