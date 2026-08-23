@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { computeAllModalities, cosmicProfileSummary, geocodeCity, CITIES, CATEGORIES, computeCompatibility, computeDailyReading } from '@/lib/zaura';
+import { computeAllModalities, cosmicProfileSummary, geocodeCity, CITIES, CATEGORIES, computeCompatibility, computeDailyReading, computeWeeklyForecast } from '@/lib/zaura';
 import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart, Trash2, MessageCircle, Send, Zap, Camera, Upload, Share2, History } from 'lucide-react';
 
 const API = '/api';
@@ -352,6 +352,56 @@ const CosmicFlipCard = ({ profile, summary }) => {
         </div>
       </div>
     </div>
+  );
+};
+
+// ---------------- WEEKLY FORECAST ----------------
+const WeeklyForecast = ({ profile }) => {
+  const [fc, setFc] = useState(null);
+  useEffect(() => { setFc(computeWeeklyForecast(profile)); }, [profile]);
+  if (!fc) return null;
+  const BARS = [
+    ['love', 'bg-rose-400/80', '\uD83D\uDC97'],
+    ['work', 'bg-amber-400/80', '\u2692\uFE0F'],
+    ['rest', 'bg-sky-400/80', '\uD83C\uDF19'],
+  ];
+  const bestKey = (day) => BARS.filter(([k]) => fc.best[k].dayNum === day.dayNum && fc.best[k].weekday === day.weekday).map(([k, , ic]) => ic);
+  return (
+    <GlassCard className="p-5 sm:p-6 mb-6" data-testid="weekly-forecast-card">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <h2 className="text-xl font-semibold" style={{ fontFamily: 'var(--font-mystic)' }}>
+          <GradientText>Seven-Day Cosmic Outlook</GradientText>
+        </h2>
+        <div className="flex flex-wrap gap-2 text-xs" data-testid="forecast-best-days">
+          <span className="rounded-full border border-rose-400/25 bg-rose-500/10 px-3 py-1 text-rose-100/85">&#128151; Love: {fc.best.love.weekday} {fc.best.love.dayNum}</span>
+          <span className="rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1 text-amber-100/85">&#9874;&#65039; Work: {fc.best.work.weekday} {fc.best.work.dayNum}</span>
+          <span className="rounded-full border border-sky-400/25 bg-sky-500/10 px-3 py-1 text-sky-100/85">&#127769; Rest: {fc.best.rest.weekday} {fc.best.rest.dayNum}</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-7 gap-1.5 sm:gap-2" data-testid="forecast-grid">
+        {fc.days.map((d) => (
+          <div
+            key={`${d.weekday}${d.dayNum}`}
+            className={`rounded-xl border p-2 sm:p-3 text-center ${d.isToday ? 'border-violet-400/50 bg-violet-500/[0.12]' : 'border-white/8 bg-white/[0.03]'}`}
+            title={`${d.weekday} ${d.dayNum} \u00b7 Personal Day ${d.personalDay} (${d.themeName}) \u00b7 ${d.moonPhase} \u00b7 Love ${d.love} / Work ${d.work} / Rest ${d.rest}`}
+          >
+            <p className="text-[10px] uppercase tracking-widest text-violet-200/40">{d.weekday}</p>
+            <p className="text-sm font-medium text-violet-100/90">{d.dayNum}</p>
+            <p className="text-base leading-none my-1">{d.moonIcon}</p>
+            <p className="text-[10px] text-amber-100/70 mb-1.5">Day {d.personalDay}</p>
+            <div className="space-y-1">
+              {BARS.map(([k, color]) => (
+                <div key={k} className="h-1 rounded-full bg-white/[0.06] overflow-hidden">
+                  <div className={`h-full rounded-full ${color}`} style={{ width: `${d[k]}%` }} />
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] mt-1 h-4">{bestKey(d).join(' ')}</p>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-violet-200/30 mt-2">Bars: <span className="text-rose-200/60">love</span> &middot; <span className="text-amber-200/60">work</span> &middot; <span className="text-sky-200/60">rest</span> &mdash; from your personal day numbers, moon phases and planetary day rulers</p>
+    </GlassCard>
   );
 };
 
@@ -1109,7 +1159,21 @@ const CompatibilityView = ({ profile, token, onBack }) => {
   const [error, setError] = useState('');
   const [partners, setPartners] = useState([]);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [bondShareBusy, setBondShareBusy] = useState(false);
   const [currentPartnerId, setCurrentPartnerId] = useState(null);
+
+  const shareBond = async () => {
+    if (!report) return;
+    setBondShareBusy(true);
+    try {
+      const { generateBondShareCard } = await import('@/lib/share');
+      await generateBondShareCard({ report });
+    } catch (e) {
+      console.error('Bond share failed:', e);
+    } finally {
+      setBondShareBusy(false);
+    }
+  };
 
   const loadPartners = useCallback(() => {
     apiCall('partners', { token }).then((d) => setPartners(d.partners || [])).catch(() => {});
@@ -1253,15 +1317,26 @@ const CompatibilityView = ({ profile, token, onBack }) => {
         {report && (
           <div data-testid="compat-report">
             <GlassCard className="p-8 mb-6 text-center relative">
-              <button
-                data-testid="compat-pdf-btn"
-                onClick={downloadCompatPdf}
-                disabled={pdfBusy}
-                className="absolute top-4 right-4 flex items-center gap-1.5 rounded-lg border border-amber-400/25 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 text-xs text-amber-100/90 transition-colors disabled:opacity-50"
-              >
-                {pdfBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                <span className="hidden sm:inline">Keepsake PDF</span>
-              </button>
+              <div className="absolute top-4 right-4 flex gap-2">
+                <button
+                  data-testid="bond-share-btn"
+                  onClick={shareBond}
+                  disabled={bondShareBusy}
+                  className="flex items-center gap-1.5 rounded-lg border border-sky-400/25 bg-sky-500/10 hover:bg-sky-500/20 px-3 py-1.5 text-xs text-sky-100/90 transition-colors disabled:opacity-50"
+                >
+                  {bondShareBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Share2 className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">Share</span>
+                </button>
+                <button
+                  data-testid="compat-pdf-btn"
+                  onClick={downloadCompatPdf}
+                  disabled={pdfBusy}
+                  className="flex items-center gap-1.5 rounded-lg border border-amber-400/25 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 text-xs text-amber-100/90 transition-colors disabled:opacity-50"
+                >
+                  {pdfBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">Keepsake PDF</span>
+                </button>
+              </div>
               <div className="flex items-center justify-center gap-6 mb-6">
                 <div className="text-center">
                   <span className="text-3xl block">{report.glyphA}</span>
@@ -1445,6 +1520,8 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
         </div>
 
         <DailyReading profile={profile} />
+
+        <WeeklyForecast profile={profile} />
 
         <SoulSynthesis token={token} />
 
