@@ -355,6 +355,51 @@ const CosmicFlipCard = ({ profile, summary }) => {
   );
 };
 
+// ---------------- WEEK GREETING BANNER ----------------
+const weekKey = () => {
+  const d = new Date();
+  const monday = new Date(d);
+  monday.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return monday.toDateString();
+};
+
+const WeekBanner = ({ profile }) => {
+  const [fc, setFc] = useState(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (localStorage.getItem('zaura_week_seen') !== weekKey()) {
+      setFc(computeWeeklyForecast(profile));
+      setVisible(true);
+    }
+  }, [profile]);
+  if (!visible || !fc) return null;
+  const dismiss = () => {
+    localStorage.setItem('zaura_week_seen', weekKey());
+    setVisible(false);
+  };
+  return (
+    <div data-testid="week-banner" className="relative mb-6 rounded-2xl border border-violet-400/40 bg-gradient-to-r from-violet-500/15 via-sky-500/10 to-fuchsia-500/15 p-4 sm:p-5 shadow-[0_0_40px_rgba(140,110,240,0.12)]">
+      <div className="flex items-start gap-3 pr-8">
+        <Sparkles className="w-5 h-5 text-violet-300 mt-0.5 shrink-0" />
+        <div>
+          <p className="text-sm font-medium text-violet-100">
+            A new week opens, {profile.fullName.split(' ')[0]} &mdash; here is your cosmic weather
+          </p>
+          <div className="flex flex-wrap gap-2 mt-2 text-xs" data-testid="week-banner-highlights">
+            <span className="rounded-full border border-rose-400/25 bg-rose-500/10 px-3 py-1 text-rose-100/85">&#128151; Love peaks {fc.best.love.weekday} {fc.best.love.dayNum}</span>
+            <span className="rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1 text-amber-100/85">&#9874;&#65039; Work flows {fc.best.work.weekday} {fc.best.work.dayNum}</span>
+            <span className="rounded-full border border-sky-400/25 bg-sky-500/10 px-3 py-1 text-sky-100/85">&#127769; Rest calls {fc.best.rest.weekday} {fc.best.rest.dayNum}</span>
+          </div>
+        </div>
+      </div>
+      <button data-testid="week-banner-dismiss" onClick={dismiss} className="absolute top-3 right-3 text-violet-200/50 hover:text-violet-100 transition-colors">
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+};
+
 // ---------------- WEEKLY FORECAST ----------------
 const WeeklyForecast = ({ profile }) => {
   const [fc, setFc] = useState(null);
@@ -794,7 +839,7 @@ const TYPE_COLORS = {
   oracle: 'border-sky-400/40 bg-sky-500/15',
 };
 
-const TimelineView = ({ token, profile, onBack }) => {
+const TimelineView = ({ token, profile, onBack, onJump }) => {
   const [events, setEvents] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -830,6 +875,7 @@ const TimelineView = ({ token, profile, onBack }) => {
             <GradientText>Your Journey</GradientText>
           </h1>
           <p className="text-sm text-violet-200/60">Every reading, story and bond &mdash; the unfolding record of {profile.fullName.split(' ')[0]}&rsquo;s path with Zaura</p>
+          <p className="text-xs text-violet-200/35 mt-1.5">Tap any moment to revisit it instantly</p>
         </div>
 
         {!loaded && (
@@ -851,13 +897,20 @@ const TimelineView = ({ token, profile, onBack }) => {
                   <div className={`absolute -left-[34px] top-1 w-9 h-9 rounded-full border flex items-center justify-center text-base backdrop-blur ${TYPE_COLORS[e.type] || 'border-white/20 bg-white/10'}`}>
                     {e.icon}
                   </div>
-                  <GlassCard className="p-4 ml-2">
+                  <button
+                    data-testid={`timeline-jump-${e.type}`}
+                    onClick={() => onJump(e)}
+                    className="w-full text-left group rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-xl hover:border-violet-400/40 hover:bg-violet-500/[0.07] transition-colors p-4 ml-2"
+                  >
                     <div className="flex flex-wrap items-baseline justify-between gap-2 mb-0.5">
-                      <h3 className="text-sm font-medium text-violet-100/90" style={{ fontFamily: 'var(--font-mystic)' }}>{e.title}</h3>
+                      <h3 className="text-sm font-medium text-violet-100/90 flex items-center gap-1.5" style={{ fontFamily: 'var(--font-mystic)' }}>
+                        {e.title}
+                        <ChevronRight className="w-3.5 h-3.5 text-violet-200/30 group-hover:text-violet-200/80 transition-colors" />
+                      </h3>
                       <span className="text-[10px] text-violet-200/40 whitespace-nowrap">{fmt(e.date)} &middot; {fmtTime(e.date)}</span>
                     </div>
                     <p className="text-xs text-violet-100/60 leading-relaxed italic">{e.subtitle}</p>
-                  </GlassCard>
+                  </button>
                 </div>
               ))}
             </div>
@@ -1151,7 +1204,7 @@ const ScoreRing = ({ score }) => {
   );
 };
 
-const CompatibilityView = ({ profile, token, onBack }) => {
+const CompatibilityView = ({ profile, token, onBack, initialPartnerId }) => {
   const [pName, setPName] = useState('');
   const [pDate, setPDate] = useState('');
   const [pTime, setPTime] = useState('');
@@ -1208,6 +1261,14 @@ const CompatibilityView = ({ profile, token, onBack }) => {
     setPName(p.partnerName); setPDate(p.birthDate); setPTime(p.birthTime || '');
     runReading(p.partnerName, p.birthDate, p.birthTime, false, p.id);
   };
+
+  const jumpedRef = React.useRef(false);
+  useEffect(() => {
+    if (!initialPartnerId || jumpedRef.current || !partners.length) return;
+    const p = partners.find((x) => x.id === initialPartnerId);
+    if (p) { jumpedRef.current = true; openSaved(p); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partners, initialPartnerId]);
 
   const removeSaved = async (e, p) => {
     e.stopPropagation();
@@ -1384,11 +1445,20 @@ const CompatibilityView = ({ profile, token, onBack }) => {
 };
 
 // ---------------- DASHBOARD ----------------
-const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, onLogout, onCompat, onOracle, onPhoto, onTimeline }) => {
+const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, onLogout, onCompat, onOracle, onPhoto, onTimeline, scrollTo, onScrolled }) => {
   const [filter, setFilter] = useState('All');
   const [pdfBusy, setPdfBusy] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const shown = filter === 'All' ? modalities : modalities.filter((m) => m.category === filter);
+
+  useEffect(() => {
+    if (!scrollTo) return;
+    const t = setTimeout(() => {
+      document.querySelector(`[data-testid="${scrollTo}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      onScrolled?.();
+    }, 350);
+    return () => clearTimeout(t);
+  }, [scrollTo, onScrolled]);
 
   const shareCard = async () => {
     setShareBusy(true);
@@ -1518,6 +1588,8 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
             </div>
           </GlassCard>
         </div>
+
+        <WeekBanner profile={profile} />
 
         <DailyReading profile={profile} />
 
@@ -1675,6 +1747,16 @@ const App = () => {
   const [profile, setProfile] = useState(null);
   const [activeModality, setActiveModality] = useState(null);
   const [photoType, setPhotoType] = useState(null);
+  const [compatJumpId, setCompatJumpId] = useState(null);
+  const [dashScroll, setDashScroll] = useState(null);
+
+  const handleTimelineJump = useCallback((e) => {
+    if (e.type === 'photo' && e.photoType) { setPhotoType(e.photoType); setView('photo'); }
+    else if ((e.type === 'partner' || e.type === 'bondStory') && e.partnerId) { setCompatJumpId(e.partnerId); setView('compat'); }
+    else if (e.type === 'oracle') setView('oracle');
+    else if (e.type === 'synthesis') { setDashScroll('soul-synthesis-card'); setView('dashboard'); }
+    else setView('dashboard');
+  }, []);
 
   useEffect(() => {
     const t = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
@@ -1725,7 +1807,7 @@ const App = () => {
     return <DetailView modalities={modalities} activeId={activeModality} onSelect={setActiveModality} onBack={() => setView('dashboard')} />;
   }
   if (view === 'timeline' && profile) {
-    return <TimelineView token={token} profile={profile} onBack={() => setView('dashboard')} />;
+    return <TimelineView token={token} profile={profile} onBack={() => setView('dashboard')} onJump={handleTimelineJump} />;
   }
   if (view === 'photo' && profile && photoType) {
     return <PhotoReadingView token={token} type={photoType} onBack={() => setView('dashboard')} />;
@@ -1734,7 +1816,7 @@ const App = () => {
     return <OracleChat token={token} profile={profile} onBack={() => setView('dashboard')} />;
   }
   if (view === 'compat' && profile) {
-    return <CompatibilityView profile={profile} token={token} onBack={() => setView('dashboard')} />;
+    return <CompatibilityView profile={profile} token={token} initialPartnerId={compatJumpId} onBack={() => { setCompatJumpId(null); setView('dashboard'); }} />;
   }
   if (view === 'dashboard' && profile) {
     return (
@@ -1751,6 +1833,8 @@ const App = () => {
         onOracle={() => setView('oracle')}
         onPhoto={(t) => { setPhotoType(t); setView('photo'); }}
         onTimeline={() => setView('timeline')}
+        scrollTo={dashScroll}
+        onScrolled={() => setDashScroll(null)}
       />
     );
   }

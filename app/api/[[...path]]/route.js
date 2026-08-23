@@ -100,10 +100,10 @@ export async function GET(request, { params }) {
       photos.forEach((p) => events.push({ id: `photo-${p.id}`, type: 'photo', photoType: p.type, icon: PI[p.type] || '\uD83D\uDCF7', title: PN[p.type] || 'Photo reading', subtitle: `\u201C${firstLine(p.text)}\u201D`, date: p.createdAt }));
 
       const partners = await database.collection('partners').find({ userId: user.id }, { projection: { _id: 0 } }).toArray();
-      partners.forEach((p) => events.push({ id: `partner-${p.id}`, type: 'partner', icon: '\uD83D\uDC9E', title: `Bond read: ${p.partnerName}`, subtitle: `${p.overall}/100 \u00b7 ${p.verdict}`, date: p.createdAt }));
+      partners.forEach((p) => events.push({ id: `partner-${p.id}`, type: 'partner', partnerId: p.id, icon: '\uD83D\uDC9E', title: `Bond read: ${p.partnerName}`, subtitle: `${p.overall}/100 \u00b7 ${p.verdict}`, date: p.createdAt }));
 
       const stories = await database.collection('bond_stories').find({ userId: user.id }, { projection: { _id: 0 } }).toArray();
-      stories.forEach((s) => events.push({ id: `story-${s.id}`, type: 'bondStory', icon: '\uD83D\uDC95', title: `Bond story told${s.partnerName ? ': ' + s.partnerName : ''}`, subtitle: `\u201C${firstLine(s.text)}\u201D`, date: s.createdAt }));
+      stories.forEach((s) => events.push({ id: `story-${s.id}`, type: 'bondStory', partnerId: s.partnerId, icon: '\uD83D\uDC95', title: `Bond story told${s.partnerName ? ': ' + s.partnerName : ''}`, subtitle: `\u201C${firstLine(s.text)}\u201D`, date: s.createdAt }));
 
       const oracleAgg = await database.collection('oracle_messages').aggregate([
         { $match: { userId: user.id } },
