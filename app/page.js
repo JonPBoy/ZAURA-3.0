@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { computeAllModalities, cosmicProfileSummary, geocodeCity, CITIES, CATEGORIES, computeCompatibility, computeDailyReading, computeWeeklyForecast } from '@/lib/zaura';
-import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart, Trash2, MessageCircle, Send, Zap, Camera, Upload, Share2, History } from 'lucide-react';
+import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart, Trash2, MessageCircle, Send, Zap, Camera, Upload, Share2, History, UserPlus, Check } from 'lucide-react';
 
 const API = '/api';
 const TOKEN_KEY = 'zaura_token';
@@ -85,7 +85,7 @@ const PHYSICAL_MODALITIES = [
 const ALL_CATEGORIES = [...CATEGORIES, 'Physical'];
 
 // ---------------- AUTH VIEW ----------------
-const AuthView = ({ onAuth }) => {
+const AuthView = ({ onAuth, inviteInfo }) => {
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -127,6 +127,15 @@ const AuthView = ({ onAuth }) => {
           </div>
           <p className="text-sm text-violet-200/60">Your cosmic self, revealed through 20 mystical modalities</p>
         </div>
+
+        {inviteInfo && (
+          <div data-testid="invite-banner" className="mb-6 rounded-xl border border-fuchsia-400/30 bg-fuchsia-500/10 p-3.5 text-center">
+            <p className="text-sm text-fuchsia-100/90">
+              {inviteInfo.sunGlyph} <span className="font-medium">{inviteInfo.inviterFirstName}</span> ({inviteInfo.sunSign}) invited you to read your cosmic bond
+            </p>
+            <p className="text-xs text-violet-200/50 mt-1">Join and enter your birth details &mdash; your compatibility reading will appear instantly</p>
+          </div>
+        )}
 
         <div className="flex rounded-xl bg-white/[0.05] p-1 mb-6 border border-white/10">
           {['login', 'register'].map((m) => (
@@ -1449,7 +1458,27 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
   const [filter, setFilter] = useState('All');
   const [pdfBusy, setPdfBusy] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
+  const [inviteState, setInviteState] = useState('idle'); // idle | busy | copied
   const shown = filter === 'All' ? modalities : modalities.filter((m) => m.category === filter);
+
+  const inviteFriend = async () => {
+    setInviteState('busy');
+    try {
+      const d = await apiCall('invites', { method: 'POST', token });
+      const url = `${window.location.origin}/?invite=${d.code}`;
+      const text = `${profile.fullName.split(' ')[0]} invited you to read your cosmic bond on Zaura`;
+      let done = false;
+      try {
+        if (navigator.share) { await navigator.share({ title: 'Zaura Bond Invite', text, url }); done = true; }
+      } catch (e) { if (e?.name === 'AbortError') done = true; }
+      if (!done) await navigator.clipboard.writeText(url);
+      setInviteState('copied');
+      setTimeout(() => setInviteState('idle'), 2500);
+    } catch (e) {
+      console.error('Invite failed:', e);
+      setInviteState('idle');
+    }
+  };
 
   useEffect(() => {
     if (!scrollTo) return;
@@ -1584,6 +1613,15 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
                 className="flex items-center gap-2 rounded-xl border border-emerald-400/25 bg-emerald-500/10 hover:bg-emerald-500/20 px-4 py-2.5 text-sm text-emerald-100/90 transition-colors"
               >
                 <History className="w-4 h-4" /> My Journey
+              </button>
+              <button
+                data-testid="invite-btn"
+                onClick={inviteFriend}
+                disabled={inviteState === 'busy'}
+                className="flex items-center gap-2 rounded-xl border border-rose-400/25 bg-rose-500/10 hover:bg-rose-500/20 px-4 py-2.5 text-sm text-rose-100/90 transition-colors disabled:opacity-50"
+              >
+                {inviteState === 'busy' ? <Loader2 className="w-4 h-4 animate-spin" /> : inviteState === 'copied' ? <Check className="w-4 h-4 text-emerald-300" /> : <UserPlus className="w-4 h-4" />}
+                {inviteState === 'copied' ? 'Link copied!' : 'Invite a Friend'}
               </button>
             </div>
           </GlassCard>
@@ -1749,6 +1787,38 @@ const App = () => {
   const [photoType, setPhotoType] = useState(null);
   const [compatJumpId, setCompatJumpId] = useState(null);
   const [dashScroll, setDashScroll] = useState(null);
+  const [inviteInfo, setInviteInfo] = useState(null);
+
+  // capture ?invite= from URL, persist, and load inviter info for the auth banner
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('invite');
+    if (code) {
+      localStorage.setItem('zaura_invite', code);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    const pending = localStorage.getItem('zaura_invite');
+    if (pending) {
+      apiCall(`invite/${pending}`)
+        .then(setInviteInfo)
+        .catch(() => { localStorage.removeItem('zaura_invite'); });
+    }
+  }, []);
+
+  // once authenticated with a profile, accept any pending invite -> jump to pre-filled bond
+  useEffect(() => {
+    if (!token || !profile || typeof window === 'undefined') return;
+    const code = localStorage.getItem('zaura_invite');
+    if (!code) return;
+    apiCall(`invite/${code}/accept`, { method: 'POST', token })
+      .then((d) => {
+        localStorage.removeItem('zaura_invite');
+        setInviteInfo(null);
+        if (d.partnerId) { setCompatJumpId(d.partnerId); setView('compat'); }
+      })
+      .catch(() => { localStorage.removeItem('zaura_invite'); setInviteInfo(null); });
+  }, [token, profile]);
 
   const handleTimelineJump = useCallback((e) => {
     if (e.type === 'photo' && e.photoType) { setPhotoType(e.photoType); setView('photo'); }
@@ -1801,7 +1871,7 @@ const App = () => {
       </div>
     );
   }
-  if (view === 'auth') return <AuthView onAuth={handleAuth} />;
+  if (view === 'auth') return <AuthView onAuth={handleAuth} inviteInfo={inviteInfo} />;
   if (view === 'birth') return <BirthForm token={token} user={user} existing={profile} onSaved={(p) => { setProfile(p); setView('dashboard'); }} />;
   if (view === 'detail' && profile) {
     return <DetailView modalities={modalities} activeId={activeModality} onSelect={setActiveModality} onBack={() => setView('dashboard')} />;
@@ -1838,7 +1908,7 @@ const App = () => {
       />
     );
   }
-  return <AuthView onAuth={handleAuth} />;
+  return <AuthView onAuth={handleAuth} inviteInfo={inviteInfo} />;
 };
 
 export default App;

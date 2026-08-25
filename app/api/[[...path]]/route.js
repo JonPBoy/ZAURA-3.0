@@ -3,7 +3,7 @@ import { MongoClient } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import crypto from 'crypto';
 import { LlmChat, UserMessage, ImageContent } from 'emergentintegrations';
-import { computeAllModalities, computeCompatibility } from '@/lib/zaura';
+import { computeAllModalities, computeCompatibility, cosmicProfileSummary } from '@/lib/zaura';
 
 // ---------- MongoDB connection (reused across invocations) ----------
 let client = null;
@@ -75,6 +75,15 @@ export async function GET(request, { params }) {
       if (!user) return json({ error: 'Unauthorized' }, 401);
       const profile = await database.collection('birth_profiles').findOne({ userId: user.id }, { projection: { _id: 0 } });
       return json({ profile: profile || null });
+    }
+
+    if (path[0] === 'invite' && path[1] && path.length === 2) {
+      const inv = await database.collection('invites').findOne({ code: path[1] });
+      if (!inv) return json({ error: 'Invite not found' }, 404);
+      const prof = await database.collection('birth_profiles').findOne({ userId: inv.userId });
+      if (!prof) return json({ error: 'Invite not found' }, 404);
+      const summary = cosmicProfileSummary(prof);
+      return json({ inviterFirstName: prof.fullName.split(' ')[0], sunSign: summary.sunSign, sunGlyph: summary.sunGlyph });
     }
 
     if (route === 'timeline') {
@@ -275,6 +284,62 @@ export async function POST(request, { params }) {
       await database.collection('partners').updateOne(key, { $set: doc }, { upsert: true });
       const { _id, ...clean } = doc;
       return json({ partner: clean }, existing ? 200 : 201);
+    }
+
+    // ---- FRIEND INVITES ----
+    if (route === 'invites') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      const profile = await database.collection('birth_profiles').findOne({ userId: user.id });
+      if (!profile) return json({ error: 'Save your birth profile first' }, 404);
+      let inv = await database.collection('invites').findOne({ userId: user.id }, { projection: { _id: 0 } });
+      if (!inv) {
+        inv = { id: uuidv4(), code: crypto.randomBytes(4).toString('hex'), userId: user.id, createdAt: new Date().toISOString(), usedBy: [] };
+        await database.collection('invites').insertOne({ ...inv });
+      }
+      return json({ code: inv.code });
+    }
+
+    if (path[0] === 'invite' && path[1] && path[2] === 'accept') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      const friendProfile = await database.collection('birth_profiles').findOne({ userId: user.id });
+      if (!friendProfile) return json({ error: 'Save your birth profile first' }, 404);
+      const inv = await database.collection('invites').findOne({ code: path[1] });
+      if (!inv) return json({ error: 'Invite not found' }, 404);
+      if (inv.userId === user.id) return json({ error: 'This is your own invite link' }, 400);
+      const inviterProfile = await database.collection('birth_profiles').findOne({ userId: inv.userId });
+      if (!inviterProfile) return json({ error: 'Invite not found' }, 404);
+
+      const upsertPartner = async (ownerId, other) => {
+        const ownerProfile = ownerId === user.id ? friendProfile : inviterProfile;
+        const rep = computeCompatibility(ownerProfile, { fullName: other.fullName, birthDate: other.birthDate, birthTime: other.birthTime });
+        const key = { userId: ownerId, nameKey: other.fullName.trim().toLowerCase(), birthDate: other.birthDate };
+        const existing = await database.collection('partners').findOne(key);
+        const doc = {
+          id: existing?.id || uuidv4(),
+          userId: ownerId,
+          nameKey: other.fullName.trim().toLowerCase(),
+          partnerName: other.fullName.trim(),
+          birthDate: other.birthDate,
+          birthTime: other.birthTime || null,
+          overall: rep.overall,
+          verdict: rep.verdict,
+          viaInvite: true,
+          createdAt: existing?.createdAt || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        await database.collection('partners').updateOne(key, { $set: doc }, { upsert: true });
+        return doc;
+      };
+
+      const friendSide = await upsertPartner(user.id, inviterProfile);   // inviter appears in friend's bonds
+      await upsertPartner(inv.userId, friendProfile);                    // friend appears in inviter's bonds
+      await database.collection('invites').updateOne(
+        { code: path[1] },
+        { $addToSet: { usedBy: { userId: user.id, name: friendProfile.fullName, at: new Date().toISOString() } } }
+      );
+      return json({ partnerId: friendSide.id, inviterName: inviterProfile.fullName });
     }
 
     // ---- PHOTO READINGS: PALM + HANDWRITING (Claude vision) ----

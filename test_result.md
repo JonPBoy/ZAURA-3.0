@@ -298,14 +298,30 @@ frontend:
           agent: "testing"
           comment: "Comprehensive backend testing COMPLETE - ALL 20 Timeline tests PASSED (111 total tests, 0 failures). Verified: ✅ GET /api/timeline without token returns 401, ✅ GET /api/timeline as luna@zaura.app returns 200 with events array containing exactly 7 events, ✅ All expected event types present: profile, synthesis, photo (palm + face), partner (x2), bondStory, ✅ Each event has required fields (id, type, icon, title, subtitle, date), ✅ No _id leakage in any event, ✅ Events sorted by date descending (verified order), ✅ Register throwaway user (no profile) returns 200 with empty events array. ZERO LLM calls made (used existing cached data). Luna's and Nova's data preserved. Timeline endpoint aggregates user journey correctly from all sources (birth_profiles, narratives, photo_readings, partners, bond_stories, oracle_messages). All authentication, data aggregation, and sorting working correctly. Backend API is production-ready."
 
+  - task: "Friend Invites API - POST /api/invites, GET /api/invite/:code (public), POST /api/invite/:code/accept (mutual bond creation)"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        - working: true
+          agent: "main"
+          comment: "POST /api/invites (auth+profile) creates/reuses persistent 8-hex code. GET /api/invite/:code public returns {inviterFirstName, sunSign, sunGlyph}, 404 unknown. POST /api/invite/:code/accept (auth+profile): rejects own invite (400), computes compatibility, upserts partner docs on BOTH sides (viaInvite:true), records usedBy, returns {partnerId, inviterName}. Verified E2E: luna's code f572fce1 -> sage@zaura.app joined via link, auth banner shown, auto-landed in pre-filled compat (76 Karmic Match), reciprocal bond appeared in luna's list. Do not delete luna/nova/sage data."
+        - working: true
+          agent: "testing"
+          comment: "Comprehensive backend testing COMPLETE - ALL 51 Friend Invites API tests PASSED (0 failures). Verified: ✅ POST /api/invites as luna returns persistent code 'f572fce1' (idempotent - same code on repeat calls), ✅ POST /api/invites without token returns 401, ✅ POST /api/invites without birth profile returns 404 with correct error message, ✅ GET /api/invite/f572fce1 (no auth) returns 200 with {inviterFirstName:'Luna', sunSign:'Cancer', sunGlyph}, ✅ GET /api/invite/doesnotexist returns 404, ✅ POST /api/invite/f572fce1/accept as luna herself returns 400 'own invite', ✅ POST /api/invite/f572fce1/accept without token returns 401, ✅ POST /api/invite/f572fce1/accept without profile returns 404, ✅ Full accept flow: registered throwaway user, created birth profile, accepted invite -> 200 {partnerId (UUID), inviterName:'Luna Rose Winters'}, ✅ Mutual partner creation verified: throwaway's partners contains Luna Rose Winters with viaInvite:true and overall score 0-100, luna's partners contains throwaway with viaInvite:true, ✅ Repeat accept (idempotency): no duplicate partner entries created (upsert working correctly), ✅ Cleanup successful: deleted throwaway from luna's partners, luna's list restored to 3 partners (Sage Moon, Orion Vale, River Sage), ✅ POST /api/invite/nonexistent/accept returns 404. ZERO LLM calls made. All authentication, validation, mutual bond creation, idempotency, and data structures working correctly. No MongoDB ObjectID leakage. Friend Invites API is production-ready."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 9
+  test_sequence: 11
   run_ui: false
 
 test_plan:
-  current_focus: []
+  current_focus:
+    - "Friend Invites API - POST /api/invites, GET /api/invite/:code (public), POST /api/invite/:code/accept (mutual bond creation)"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -331,3 +347,5 @@ agent_communication:
       message: "Photo Readings API backend testing COMPLETE - ALL 23 Photo Readings tests PASSED (95 total tests, 0 failures). Verified: ✅ GET /api/photo-readings without token returns 401, ✅ GET /api/photo-readings as luna returns 200 with readings array containing 1 palm reading (id/userId/type/text/model/createdAt, no _id), ✅ POST /api/photo-reading without token returns 401, ✅ POST validation: invalid type 'face' returns 400 with correct error message, missing imageBase64 returns 400, imageBase64 too short (<500 chars) returns 400 with 'empty/corrupted' message, imageBase64 too large (>4M chars) returns 413, ✅ Code review confirmed: vision call exists (line 278 ImageContent), NOT_VALID guard returns 422 (lines 281-283), valid reading cached and returns 201 (lines 284-298). ZERO LLM/vision calls made (strict cost limit adhered). Luna's cached palm reading preserved. All authentication, validation, caching, and data structures working correctly. No MongoDB ObjectID leakage. All backend APIs are production-ready. Ready for main agent to summarize and finish."
     - agent: "testing"
       message: "Timeline API backend testing COMPLETE - ALL 20 Timeline tests PASSED (111 total tests, 0 failures). Verified: ✅ GET /api/timeline without token returns 401, ✅ GET /api/timeline as luna@zaura.app returns 200 with events array containing exactly 7 events, ✅ All expected event types present: profile, synthesis, photo (palm + face), partner (x2), bondStory, ✅ Each event has required fields (id, type, icon, title, subtitle, date), ✅ No _id leakage in any event, ✅ Events sorted by date descending (verified order), ✅ Register throwaway user (no profile) returns 200 with empty events array. ZERO LLM calls made (used existing cached data). Luna's and Nova's data preserved. Timeline endpoint aggregates user journey correctly from all sources (birth_profiles, narratives, photo_readings, partners, bond_stories, oracle_messages). All authentication, data aggregation, and sorting working correctly. Backend API is production-ready."
+    - agent: "testing"
+      message: "Friend Invites API backend testing COMPLETE - ALL 51 tests PASSED (162 total tests, 0 failures). Verified: ✅ POST /api/invites as luna returns persistent code 'f572fce1' (idempotent), ✅ POST /api/invites without token returns 401, ✅ POST /api/invites without profile returns 404, ✅ GET /api/invite/f572fce1 (no auth) returns 200 with inviter info (Luna, Cancer, sunGlyph), ✅ GET /api/invite/doesnotexist returns 404, ✅ POST /api/invite/f572fce1/accept as luna returns 400 'own invite', ✅ POST /api/invite/f572fce1/accept without token returns 401, ✅ POST /api/invite/f572fce1/accept without profile returns 404, ✅ Full accept flow with throwaway user successful (register, create profile, accept invite -> 200 with partnerId and inviterName), ✅ Mutual partner creation verified (both sides have each other with viaInvite:true), ✅ Repeat accept idempotent (no duplicate partners), ✅ Cleanup successful (deleted throwaway from luna's partners, restored to 3 original partners), ✅ POST /api/invite/nonexistent/accept returns 404. ZERO LLM calls made. All authentication, validation, mutual bond creation, idempotency working correctly. No MongoDB ObjectID leakage. Friend Invites API is production-ready. All backend APIs fully tested and working."
