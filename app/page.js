@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { computeAllModalities, cosmicProfileSummary, geocodeCity, CITIES, CATEGORIES, computeCompatibility, computeDailyReading, computeWeeklyForecast } from '@/lib/zaura';
-import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart, Trash2, MessageCircle, Send, Zap, Camera, Upload, Share2, History, UserPlus, Check } from 'lucide-react';
+import { computeAllModalities, cosmicProfileSummary, geocodeCity, CITIES, CATEGORIES, computeCompatibility, computeDailyReading, computeWeeklyForecast, getMonthMoonCalendar, getMoonPhase } from '@/lib/zaura';
+import { Sparkles, Moon, Star, ChevronLeft, ChevronRight, LogOut, Pencil, Eye, EyeOff, Loader2, Menu, X, Download, Heart, Trash2, MessageCircle, Send, Zap, Camera, Upload, Share2, History, UserPlus, Check, Bell, CalendarDays } from 'lucide-react';
 
 const API = '/api';
 const TOKEN_KEY = 'zaura_token';
@@ -1454,7 +1454,7 @@ const CompatibilityView = ({ profile, token, onBack, initialPartnerId }) => {
 };
 
 // ---------------- DASHBOARD ----------------
-const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, onLogout, onCompat, onOracle, onPhoto, onTimeline, scrollTo, onScrolled }) => {
+const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, onLogout, onCompat, onOracle, onPhoto, onTimeline, onMoon, onOpenBond, scrollTo, onScrolled }) => {
   const [filter, setFilter] = useState('All');
   const [pdfBusy, setPdfBusy] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
@@ -1615,6 +1615,13 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
                 <History className="w-4 h-4" /> My Journey
               </button>
               <button
+                data-testid="moon-calendar-btn"
+                onClick={onMoon}
+                className="flex items-center gap-2 rounded-xl border border-indigo-400/25 bg-indigo-500/10 hover:bg-indigo-500/20 px-4 py-2.5 text-sm text-indigo-100/90 transition-colors"
+              >
+                <CalendarDays className="w-4 h-4" /> Moon Calendar
+              </button>
+              <button
                 data-testid="invite-btn"
                 onClick={inviteFriend}
                 disabled={inviteState === 'busy'}
@@ -1626,6 +1633,8 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
             </div>
           </GlassCard>
         </div>
+
+        <BondNotifications token={token} onOpenBond={onOpenBond} />
 
         <WeekBanner profile={profile} />
 
@@ -1777,6 +1786,218 @@ const DetailView = ({ modalities, activeId, onSelect, onBack }) => {
   );
 };
 
+// ---------------- MOON CALENDAR VIEW ----------------
+const MoonCalendarView = ({ profile, onBack }) => {
+  const now = new Date();
+  const [cursor, setCursor] = useState({ y: now.getFullYear(), m: now.getMonth() + 1 });
+  const [selected, setSelected] = useState(null);
+  const cal = useMemo(() => getMonthMoonCalendar(profile, cursor.y, cursor.m), [profile, cursor]);
+  const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const prevMonth = () => setCursor((c) => (c.m === 1 ? { y: c.y - 1, m: 12 } : { y: c.y, m: c.m - 1 }));
+  const nextMonth = () => setCursor((c) => (c.m === 12 ? { y: c.y + 1, m: 1 } : { y: c.y, m: c.m + 1 }));
+  const goToday = () => { setCursor({ y: now.getFullYear(), m: now.getMonth() + 1 }); setSelected(null); };
+
+  return (
+    <div className="relative min-h-screen">
+      <Stars />
+      <header className="relative border-b border-white/5 bg-[#070616]/80 backdrop-blur-lg sticky top-0 z-20">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
+          <button data-testid="back-to-dashboard-btn" onClick={onBack} className="flex items-center gap-1.5 text-sm text-violet-200/70 hover:text-white transition-colors">
+            <ChevronLeft className="w-4 h-4" /> Dashboard
+          </button>
+          <span className="text-lg tracking-[0.2em]" style={{ fontFamily: 'var(--font-mystic)' }}>
+            <GradientText>MOON CALENDAR</GradientText>
+          </span>
+          <button onClick={goToday} className="text-xs text-violet-200/60 hover:text-white transition-colors rounded-lg border border-white/10 px-3 py-1.5">Today</button>
+        </div>
+      </header>
+
+      <main className="relative max-w-5xl mx-auto px-4 sm:px-6 py-8">
+        <GlassCard className="p-5 sm:p-6 mb-6" data-testid="moon-calendar-card">
+          <div className="flex items-center justify-between mb-4">
+            <button onClick={prevMonth} data-testid="moon-prev" className="rounded-lg border border-white/10 p-2 text-violet-200/70 hover:text-white hover:border-white/25 transition-colors">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <div className="text-center">
+              <h2 className="text-2xl sm:text-3xl font-semibold" style={{ fontFamily: 'var(--font-mystic)' }}>
+                <GradientText>{cal.label}</GradientText>
+              </h2>
+              <p className="text-xs text-violet-200/50 mt-1">
+                {cal.powerCount} power {cal.powerCount === 1 ? 'day' : 'days'} this month
+                {cal.keyMoons.length > 0 && ' \u00b7 '}
+                {cal.keyMoons.map((k, i) => <span key={i} className="ml-1">{k.glyph} {k.name} {k.day}{i < cal.keyMoons.length - 1 ? ' \u00b7' : ''}</span>)}
+              </p>
+            </div>
+            <button onClick={nextMonth} data-testid="moon-next" className="rounded-lg border border-white/10 p-2 text-violet-200/70 hover:text-white hover:border-white/25 transition-colors">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1.5 sm:gap-2 mb-2">
+            {WEEKDAYS.map((d) => (
+              <div key={d} className="text-center text-[10px] uppercase tracking-widest text-violet-200/40 py-1">{d}</div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-7 gap-1.5 sm:gap-2" data-testid="moon-grid">
+            {cal.cells.map((c, i) => {
+              const ring =
+                c.isToday ? 'ring-2 ring-amber-300/80 shadow-[0_0_18px_rgba(240,200,120,0.35)]'
+                : c.isPower && c.inMonth ? 'ring-2 ring-fuchsia-300/60 shadow-[0_0_18px_rgba(200,120,240,0.35)]'
+                : 'ring-1 ring-white/5';
+              const dim = c.inMonth ? '' : 'opacity-25';
+              return (
+                <button
+                  key={c.key + '-' + i}
+                  data-testid={`moon-cell-${c.dateISO}`}
+                  onClick={() => setSelected(c)}
+                  title={`${c.moon.name} \u00b7 Personal Day ${c.personalDay} (${c.themeName})${c.isPower ? ' \u00b7 Power Day' : ''}`}
+                  className={`relative aspect-square rounded-xl bg-white/[0.03] hover:bg-white/[0.08] transition-colors p-1.5 sm:p-2 flex flex-col items-center justify-center gap-0.5 ${ring} ${dim}`}
+                >
+                  <span className="text-lg sm:text-2xl leading-none">{c.moon.glyph}</span>
+                  <span className={`text-[10px] sm:text-xs font-medium ${c.isToday ? 'text-amber-100' : c.isPower && c.inMonth ? 'text-fuchsia-100' : 'text-violet-100/80'}`}>{c.day}</span>
+                  {c.inMonth && (
+                    <span className="text-[8px] text-violet-200/40 hidden sm:block">d{c.personalDay}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-3 text-[10px] text-violet-200/50">
+            <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-full ring-2 ring-amber-300/80" /> Today</span>
+            <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-full ring-2 ring-fuchsia-300/60" /> Power day (life path or New/Full Moon)</span>
+          </div>
+        </GlassCard>
+
+        {selected && (
+          <GlassCard className="p-5 sm:p-6" data-testid="moon-cell-detail">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div className="flex items-baseline gap-3">
+                <span className="text-4xl">{selected.moon.glyph}</span>
+                <div>
+                  <h3 className="text-xl font-semibold" style={{ fontFamily: 'var(--font-mystic)' }}>
+                    <GradientText>{new Date(selected.dateISO + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</GradientText>
+                  </h3>
+                  <p className="text-xs text-violet-200/50 mt-0.5">{selected.moon.name} &middot; {Math.round(selected.moon.illumination * 100)}% illumination</p>
+                </div>
+              </div>
+              <button onClick={() => setSelected(null)} className="text-violet-200/50 hover:text-white transition-colors"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-sm text-violet-100/70 leading-relaxed mb-4">{selected.moon.text}</p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className={`rounded-xl border p-4 ${selected.isPower ? 'border-fuchsia-400/40 bg-fuchsia-500/[0.10]' : 'border-amber-400/15 bg-amber-500/[0.06]'}`}>
+                <div className="flex items-baseline gap-2 mb-1">
+                  <span className="text-2xl font-semibold text-amber-100/90">{selected.personalDay}</span>
+                  <span className="text-xs uppercase tracking-widest text-violet-200/40">Personal Day &middot; {selected.themeName}</span>
+                  {selected.isPower && <Zap className="w-3.5 h-3.5 text-fuchsia-300" />}
+                </div>
+                <p className="text-xs text-violet-100/60 leading-relaxed">{selected.themeText}</p>
+              </div>
+              {selected.isPower && (
+                <div className="rounded-xl border border-fuchsia-400/40 bg-fuchsia-500/[0.08] p-4">
+                  <p className="text-xs uppercase tracking-widest text-fuchsia-200/60 mb-1">Why it&rsquo;s a power day</p>
+                  <p className="text-sm text-violet-100/80 leading-relaxed">
+                    {selected.powerReason === 'both' && 'This day is doubly potent: your personal number lines up and the sky is at a New/Full Moon.'}
+                    {selected.powerReason === 'number' && 'Your personal number resonates \u2014 initiate, claim, or align with your life path today.'}
+                    {selected.powerReason === 'moon' && 'A New or Full Moon amplifies whatever you focus on today. Choose intentionally.'}
+                  </p>
+                </div>
+              )}
+            </div>
+          </GlassCard>
+        )}
+      </main>
+    </div>
+  );
+};
+
+// ---------------- BOND NOTIFICATIONS (dashboard highlight) ----------------
+const BondNotifications = ({ token, onOpenBond }) => {
+  const [items, setItems] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    try {
+      const d = await apiCall('notifications', { token });
+      setItems(d.notifications || []);
+    } catch {}
+  }, [token]);
+
+  useEffect(() => {
+    load();
+    const iv = setInterval(load, 30000); // gentle poll every 30s
+    return () => clearInterval(iv);
+  }, [load]);
+
+  const unread = items.filter((n) => !n.readAt && n.kind === 'bond_joined');
+  if (unread.length === 0) return null;
+
+  const open = async (n) => {
+    setBusy(true);
+    try {
+      await apiCall(`notifications/${n.id}/read`, { method: 'PATCH', token });
+      setItems((prev) => prev.map((x) => x.id === n.id ? { ...x, readAt: new Date().toISOString() } : x));
+      onOpenBond?.(n.partnerId);
+    } catch (e) {
+      console.error('Notification open failed', e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const dismiss = async (e, n) => {
+    e.stopPropagation();
+    try {
+      await apiCall(`notifications/${n.id}`, { method: 'DELETE', token });
+      setItems((prev) => prev.filter((x) => x.id !== n.id));
+    } catch {}
+  };
+
+  return (
+    <div className="mb-6 space-y-2" data-testid="bond-notifications">
+      {unread.map((n) => (
+        <div
+          key={n.id}
+          data-testid={`bond-notif-${n.id}`}
+          role="button"
+          tabIndex={0}
+          onClick={() => !busy && open(n)}
+          onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !busy) open(n); }}
+          className="group w-full text-left rounded-2xl border border-fuchsia-400/40 bg-gradient-to-r from-fuchsia-500/15 via-violet-500/10 to-amber-500/10 p-4 sm:p-5 shadow-[0_0_40px_rgba(200,80,220,0.18)] hover:shadow-[0_0_60px_rgba(200,80,220,0.28)] transition-shadow cursor-pointer"
+        >
+          <div className="flex items-start gap-3">
+            <Sparkles className="w-5 h-5 text-fuchsia-200 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-fuchsia-50">
+                {n.friendFirstName} joined through your invite &mdash; your bond is ready
+              </p>
+              <p className="text-xs text-violet-100/70 mt-0.5">
+                {n.overall != null && (
+                  <>Bond score {n.overall}/100{n.verdict ? ` \u00b7 ${n.verdict}` : ''} &middot; </>
+                )}
+                Tap to open your reciprocal reading with {n.friendFullName || n.friendFirstName}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => dismiss(e, n)}
+              data-testid={`bond-notif-dismiss-${n.id}`}
+              className="text-fuchsia-200/50 hover:text-fuchsia-100 transition-colors mt-0.5"
+              aria-label="Dismiss notification"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+
 // ---------------- ROOT APP ----------------
 const App = () => {
   const [view, setView] = useState('loading'); // loading | auth | birth | dashboard | detail
@@ -1879,6 +2100,9 @@ const App = () => {
   if (view === 'timeline' && profile) {
     return <TimelineView token={token} profile={profile} onBack={() => setView('dashboard')} onJump={handleTimelineJump} />;
   }
+  if (view === 'moon' && profile) {
+    return <MoonCalendarView profile={profile} onBack={() => setView('dashboard')} />;
+  }
   if (view === 'photo' && profile && photoType) {
     return <PhotoReadingView token={token} type={photoType} onBack={() => setView('dashboard')} />;
   }
@@ -1903,6 +2127,8 @@ const App = () => {
         onOracle={() => setView('oracle')}
         onPhoto={(t) => { setPhotoType(t); setView('photo'); }}
         onTimeline={() => setView('timeline')}
+        onMoon={() => setView('moon')}
+        onOpenBond={(partnerId) => { setCompatJumpId(partnerId); setView('compat'); }}
         scrollTo={dashScroll}
         onScrolled={() => setDashScroll(null)}
       />

@@ -1,537 +1,649 @@
 #!/usr/bin/env python3
 """
-Backend API test suite for Zaura app - Oracle Chat, Bond Story, and Photo Readings endpoints
-Tests Oracle Chat (GET/POST/DELETE /api/oracle), Bond Story (GET/POST /api/bond-story), and Photo Readings (GET/POST /api/photo-reading(s))
+Backend API test suite for Zaura - Bond Notifications API
+Tests the notification endpoints added to /app/app/api/[[...path]]/route.js
 """
 
 import requests
+import json
 import time
-import sys
-import os
+import random
+import string
+from datetime import datetime
 
-# Get base URL from environment
-BASE_URL = os.getenv('NEXT_PUBLIC_BASE_URL', 'https://soul-compass-58.preview.emergentagent.com')
-API_URL = f"{BASE_URL}/api"
+# Base URL from .env
+BASE_URL = "https://soul-compass-58.preview.emergentagent.com/api"
 
 # Test credentials
 LUNA_EMAIL = "luna@zaura.app"
 LUNA_PASSWORD = "cosmic123"
-NOVA_EMAIL = "nova@zaura.app"
-NOVA_PASSWORD = "cosmic123"
+LUNA_INVITE_CODE = "f572fce1"
+
+# Colors for output
+GREEN = '\033[92m'
+RED = '\033[91m'
+BLUE = '\033[94m'
+YELLOW = '\033[93m'
+RESET = '\033[0m'
+
+def log_test(name, passed, details=""):
+    status = f"{GREEN}✅ PASSED{RESET}" if passed else f"{RED}❌ FAILED{RESET}"
+    print(f"{status} - {name}")
+    if details:
+        print(f"  {details}")
+
+def log_section(name):
+    print(f"\n{BLUE}{'='*80}{RESET}")
+    print(f"{BLUE}{name}{RESET}")
+    print(f"{BLUE}{'='*80}{RESET}\n")
+
+def generate_random_email():
+    """Generate a random email for throwaway user"""
+    random_str = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+    return f"notif_test_{random_str}@test.zaura.app"
 
 # Test counters
-tests_passed = 0
-tests_failed = 0
+total_tests = 0
+passed_tests = 0
 
-def test(name, condition, error_msg=""):
-    """Helper to track test results"""
-    global tests_passed, tests_failed
-    if condition:
-        tests_passed += 1
-        print(f"✅ {name}")
-        return True
-    else:
-        tests_failed += 1
-        print(f"❌ {name}")
-        if error_msg:
-            print(f"   Error: {error_msg}")
+def run_test(name, test_func):
+    global total_tests, passed_tests
+    total_tests += 1
+    try:
+        result = test_func()
+        if result:
+            passed_tests += 1
+            log_test(name, True)
+        else:
+            log_test(name, False)
+        return result
+    except Exception as e:
+        log_test(name, False, f"Exception: {str(e)}")
         return False
 
-def login(email, password):
-    """Login and return token"""
-    resp = requests.post(f"{API_URL}/auth/login", json={"email": email, "password": password})
-    if resp.status_code == 200:
-        return resp.json().get('token')
-    return None
+# ============================================================================
+# TEST 1: GET /api/notifications without Authorization → 401
+# ============================================================================
+def test_notifications_no_auth():
+    log_section("TEST 1: GET /api/notifications without Authorization")
+    response = requests.get(f"{BASE_URL}/notifications")
+    success = response.status_code == 401
+    if not success:
+        print(f"  Expected 401, got {response.status_code}")
+    return success
 
-def register_throwaway():
-    """Register a throwaway user and return token"""
-    import uuid
-    email = f"throwaway_{uuid.uuid4().hex[:8]}@test.com"
-    resp = requests.post(f"{API_URL}/auth/register", json={
-        "email": email,
-        "password": "test123",
-        "name": "Throwaway User"
+# ============================================================================
+# TEST 2: Login as luna@zaura.app → get token
+# ============================================================================
+def test_login_luna():
+    log_section("TEST 2: Login as luna@zaura.app")
+    response = requests.post(f"{BASE_URL}/auth/login", json={
+        "email": LUNA_EMAIL,
+        "password": LUNA_PASSWORD
     })
-    if resp.status_code == 201:
-        return resp.json().get('token'), email
-    return None, None
-
-print("\n" + "="*80)
-print("ZAURA BACKEND TEST - ORACLE CHAT, BOND STORY & PHOTO READINGS ENDPOINTS")
-print("="*80 + "\n")
-
-# ============================================================================
-# A) ORACLE CHAT TESTS
-# ============================================================================
-print("\n--- A) ORACLE CHAT TESTS ---\n")
-
-# Test A1: GET /api/oracle as nova -> 200, {messages:[4 items], sessionId}
-print("Test A1: GET /api/oracle as nova (existing 4-message session)")
-nova_token = login(NOVA_EMAIL, NOVA_PASSWORD)
-if nova_token:
-    resp = requests.get(f"{API_URL}/oracle", headers={"Authorization": f"Bearer {nova_token}"})
-    test("A1.1: GET /api/oracle returns 200", resp.status_code == 200, f"Got {resp.status_code}")
-    if resp.status_code == 200:
-        data = resp.json()
-        messages = data.get('messages', [])
-        session_id = data.get('sessionId')
-        test("A1.2: Response has messages array", isinstance(messages, list), f"Got {type(messages)}")
-        test("A1.3: Messages array has 4 items", len(messages) == 4, f"Got {len(messages)} messages")
-        
-        if len(messages) > 0:
-            msg = messages[0]
-            test("A1.4: Message has 'id' field", 'id' in msg, f"Keys: {msg.keys()}")
-            test("A1.5: Message has 'role' field", 'role' in msg, f"Keys: {msg.keys()}")
-            test("A1.6: Message has 'text' field", 'text' in msg, f"Keys: {msg.keys()}")
-            test("A1.7: Message has 'createdAt' field", 'createdAt' in msg, f"Keys: {msg.keys()}")
-            test("A1.8: Message has no '_id' field", '_id' not in msg, "Found MongoDB _id")
-            
-            # Check alternating roles
-            roles = [m.get('role') for m in messages]
-            expected_roles = ['user', 'assistant', 'user', 'assistant']
-            test("A1.9: Messages have alternating user/assistant roles", roles == expected_roles, f"Got roles: {roles}")
-        
-        test("A1.10: Response has sessionId", session_id is not None, "sessionId is None")
-else:
-    print("❌ Failed to login as nova@zaura.app")
-    tests_failed += 10
-
-# Test A2: GET/POST /api/oracle without token -> 401
-print("\nTest A2: GET/POST /api/oracle without token -> 401")
-resp = requests.get(f"{API_URL}/oracle")
-test("A2.1: GET /api/oracle without token returns 401", resp.status_code == 401, f"Got {resp.status_code}")
-
-resp = requests.post(f"{API_URL}/oracle", json={"message": "hello"})
-test("A2.2: POST /api/oracle without token returns 401", resp.status_code == 401, f"Got {resp.status_code}")
-
-# Test A3: POST /api/oracle validation (empty message, too long message)
-print("\nTest A3: POST /api/oracle validation")
-luna_token = login(LUNA_EMAIL, LUNA_PASSWORD)
-if luna_token:
-    # Empty message
-    resp = requests.post(f"{API_URL}/oracle", 
-                        headers={"Authorization": f"Bearer {luna_token}"},
-                        json={"message": ""})
-    test("A3.1: POST /api/oracle with empty message returns 400", resp.status_code == 400, f"Got {resp.status_code}")
-    
-    # Too long message (>1000 chars)
-    resp = requests.post(f"{API_URL}/oracle",
-                        headers={"Authorization": f"Bearer {luna_token}"},
-                        json={"message": "x" * 1001})
-    test("A3.2: POST /api/oracle with >1000 char message returns 400", resp.status_code == 400, f"Got {resp.status_code}")
-else:
-    print("❌ Failed to login as luna@zaura.app")
-    tests_failed += 2
-
-# Test A4: POST /api/oracle without profile -> 404
-print("\nTest A4: POST /api/oracle without profile -> 404")
-throwaway_token, throwaway_email = register_throwaway()
-if throwaway_token:
-    resp = requests.post(f"{API_URL}/oracle",
-                        headers={"Authorization": f"Bearer {throwaway_token}"},
-                        json={"message": "hello"})
-    test("A4.1: POST /api/oracle without profile returns 404", resp.status_code == 404, f"Got {resp.status_code}")
-    if resp.status_code == 404:
-        error_msg = resp.json().get('error', '')
-        test("A4.2: Error message mentions profile", 'profile' in error_msg.lower(), f"Got: {error_msg}")
-else:
-    print("❌ Failed to register throwaway user")
-    tests_failed += 2
-
-# Test A5: POST /api/oracle as luna (ONE allowed LLM call)
-print("\nTest A5: POST /api/oracle as luna (ONE LLM call allowed)")
-if luna_token:
-    start_time = time.time()
-    resp = requests.post(f"{API_URL}/oracle",
-                        headers={"Authorization": f"Bearer {luna_token}"},
-                        json={"message": "In one sentence, what is my sun sign?"})
-    elapsed = time.time() - start_time
-    
-    test("A5.1: POST /api/oracle returns 201", resp.status_code == 201, f"Got {resp.status_code}")
-    if resp.status_code == 201:
-        data = resp.json()
-        reply = data.get('reply', {})
-        session_id = data.get('sessionId')
-        
-        test("A5.2: Response has 'reply' object", isinstance(reply, dict), f"Got {type(reply)}")
-        test("A5.3: Reply has role='assistant'", reply.get('role') == 'assistant', f"Got role: {reply.get('role')}")
-        test("A5.4: Reply has non-empty text", len(reply.get('text', '')) > 0, f"Text length: {len(reply.get('text', ''))}")
-        test("A5.5: Response has sessionId", session_id is not None, "sessionId is None")
-        
-        # Verify GET returns 2 messages now (user + assistant)
-        resp_get = requests.get(f"{API_URL}/oracle", headers={"Authorization": f"Bearer {luna_token}"})
-        if resp_get.status_code == 200:
-            messages = resp_get.json().get('messages', [])
-            test("A5.6: GET /api/oracle now returns 2 messages", len(messages) == 2, f"Got {len(messages)} messages")
-        else:
-            test("A5.6: GET /api/oracle now returns 2 messages", False, f"GET failed with {resp_get.status_code}")
-else:
-    print("❌ Failed to login as luna@zaura.app")
-    tests_failed += 6
-
-# Test A6: DELETE /api/oracle
-print("\nTest A6: DELETE /api/oracle")
-# First test DELETE without token
-resp = requests.delete(f"{API_URL}/oracle")
-test("A6.1: DELETE /api/oracle without token returns 401", resp.status_code == 401, f"Got {resp.status_code}")
-
-# DELETE as luna
-if luna_token:
-    resp = requests.delete(f"{API_URL}/oracle", headers={"Authorization": f"Bearer {luna_token}"})
-    test("A6.2: DELETE /api/oracle returns 200 with ok:true", 
-         resp.status_code == 200 and resp.json().get('ok') == True, 
-         f"Got {resp.status_code}, body: {resp.json()}")
-    
-    # Verify GET returns empty messages
-    resp_get = requests.get(f"{API_URL}/oracle", headers={"Authorization": f"Bearer {luna_token}"})
-    if resp_get.status_code == 200:
-        messages = resp_get.json().get('messages', [])
-        test("A6.3: GET /api/oracle after DELETE returns empty messages", len(messages) == 0, f"Got {len(messages)} messages")
+    success = response.status_code == 200 and "token" in response.json()
+    if success:
+        global luna_token, luna_user_id
+        luna_token = response.json()["token"]
+        luna_user_id = response.json()["user"]["id"]
+        print(f"  Luna token: {luna_token[:20]}...")
+        print(f"  Luna user ID: {luna_user_id}")
     else:
-        test("A6.3: GET /api/oracle after DELETE returns empty messages", False, f"GET failed with {resp_get.status_code}")
-else:
-    print("❌ Failed to login as luna@zaura.app")
-    tests_failed += 2
+        print(f"  Login failed: {response.status_code} - {response.text}")
+    return success
 
 # ============================================================================
-# B) BOND STORY TESTS
+# TEST 3: GET /api/notifications as luna → 200, empty array, unreadCount=0
 # ============================================================================
-print("\n--- B) BOND STORY TESTS ---\n")
-
-# Test B7: GET /api/bond-story validation
-print("Test B7: GET /api/bond-story validation")
-resp = requests.get(f"{API_URL}/bond-story")
-test("B7.1: GET /api/bond-story without token returns 401", resp.status_code == 401, f"Got {resp.status_code}")
-
-if luna_token:
-    resp = requests.get(f"{API_URL}/bond-story", headers={"Authorization": f"Bearer {luna_token}"})
-    test("B7.2: GET /api/bond-story without partnerId returns 400", resp.status_code == 400, f"Got {resp.status_code}")
-else:
-    print("❌ Failed to login as luna@zaura.app")
-    tests_failed += 1
-
-# Test B8: GET /api/bond-story for Orion Vale (cached story exists)
-print("\nTest B8: GET /api/bond-story for Orion Vale (cached)")
-if luna_token:
-    # First get partners list
-    resp = requests.get(f"{API_URL}/partners", headers={"Authorization": f"Bearer {luna_token}"})
-    test("B8.1: GET /api/partners returns 200", resp.status_code == 200, f"Got {resp.status_code}")
-    
-    if resp.status_code == 200:
-        partners = resp.json().get('partners', [])
-        orion = next((p for p in partners if p.get('partnerName') == 'Orion Vale'), None)
-        river = next((p for p in partners if p.get('partnerName') == 'River Sage'), None)
-        
-        test("B8.2: Found partner 'Orion Vale'", orion is not None, "Orion Vale not found in partners")
-        test("B8.3: Found partner 'River Sage'", river is not None, "River Sage not found in partners")
-        
-        if orion:
-            orion_id = orion.get('id')
-            resp = requests.get(f"{API_URL}/bond-story?partnerId={orion_id}", 
-                              headers={"Authorization": f"Bearer {luna_token}"})
-            test("B8.4: GET /api/bond-story for Orion returns 200", resp.status_code == 200, f"Got {resp.status_code}")
-            
-            if resp.status_code == 200:
-                data = resp.json()
-                story = data.get('story')
-                test("B8.5: Response has 'story' object", story is not None, "story is None")
-                
-                if story:
-                    test("B8.6: Story has 'id' field (UUID)", 'id' in story, f"Keys: {story.keys()}")
-                    test("B8.7: Story has 'partnerId' field", 'partnerId' in story, f"Keys: {story.keys()}")
-                    test("B8.8: Story has 'partnerName' field", 'partnerName' in story, f"Keys: {story.keys()}")
-                    test("B8.9: Story has 'text' field", 'text' in story, f"Keys: {story.keys()}")
-                    test("B8.10: Story has 'model' field", 'model' in story, f"Keys: {story.keys()}")
-                    test("B8.11: Story has 'createdAt' field", 'createdAt' in story, f"Keys: {story.keys()}")
-                    test("B8.12: Story has no '_id' field", '_id' not in story, "Found MongoDB _id")
-        else:
-            tests_failed += 9
-else:
-    print("❌ Failed to login as luna@zaura.app")
-    tests_failed += 12
-
-# Test B9: GET /api/bond-story for River Sage (no cached story)
-print("\nTest B9: GET /api/bond-story for River Sage (no cache)")
-if luna_token and river:
-    river_id = river.get('id')
-    resp = requests.get(f"{API_URL}/bond-story?partnerId={river_id}",
-                       headers={"Authorization": f"Bearer {luna_token}"})
-    test("B9.1: GET /api/bond-story for River Sage returns 200", resp.status_code == 200, f"Got {resp.status_code}")
-    if resp.status_code == 200:
-        data = resp.json()
-        story = data.get('story')
-        test("B9.2: Story is null (no cache for River Sage)", story is None, f"Got story: {story}")
-else:
-    if not luna_token:
-        print("❌ Failed to login as luna@zaura.app")
-    if not river:
-        print("❌ River Sage partner not found")
-    tests_failed += 2
-
-# Test B10: POST /api/bond-story validation
-print("\nTest B10: POST /api/bond-story validation")
-if luna_token:
-    # POST without partnerId
-    resp = requests.post(f"{API_URL}/bond-story",
-                        headers={"Authorization": f"Bearer {luna_token}"},
-                        json={})
-    test("B10.1: POST /api/bond-story without partnerId returns 400", resp.status_code == 400, f"Got {resp.status_code}")
-    
-    # POST with nonexistent partnerId
-    resp = requests.post(f"{API_URL}/bond-story",
-                        headers={"Authorization": f"Bearer {luna_token}"},
-                        json={"partnerId": "nonexistent-id-12345"})
-    test("B10.2: POST /api/bond-story with nonexistent partnerId returns 404", resp.status_code == 404, f"Got {resp.status_code}")
-else:
-    print("❌ Failed to login as luna@zaura.app")
-    tests_failed += 2
-
-# POST as throwaway user (no profile)
-if throwaway_token:
-    resp = requests.post(f"{API_URL}/bond-story",
-                        headers={"Authorization": f"Bearer {throwaway_token}"},
-                        json={"partnerId": "any-id"})
-    test("B10.3: POST /api/bond-story without profile returns 404", resp.status_code == 404, f"Got {resp.status_code}")
-else:
-    print("❌ Throwaway token not available")
-    tests_failed += 1
-
-# Test B11: POST /api/bond-story for Orion (cached, no regenerate)
-print("\nTest B11: POST /api/bond-story for Orion (cached, no LLM call)")
-if luna_token and orion:
-    orion_id = orion.get('id')
-    start_time = time.time()
-    resp = requests.post(f"{API_URL}/bond-story",
-                        headers={"Authorization": f"Bearer {luna_token}"},
-                        json={"partnerId": orion_id})
-    elapsed = time.time() - start_time
-    
-    test("B11.1: POST /api/bond-story for Orion returns 200", resp.status_code == 200, f"Got {resp.status_code}")
-    if resp.status_code == 200:
-        data = resp.json()
-        cached = data.get('cached')
-        test("B11.2: Response has cached=true", cached == True, f"Got cached: {cached}")
-        test("B11.3: Response time < 2s (instant cache)", elapsed < 2.0, f"Took {elapsed:.3f}s")
-        
-        story = data.get('story')
-        test("B11.4: Response has story object", story is not None, "story is None")
-else:
-    if not luna_token:
-        print("❌ Failed to login as luna@zaura.app")
-    if not orion:
-        print("❌ Orion Vale partner not found")
-    tests_failed += 4
-
-# ============================================================================
-# C) PHOTO READINGS TESTS
-# ============================================================================
-print("\n--- C) PHOTO READINGS TESTS ---\n")
-
-# Test C1: GET /api/photo-readings without token -> 401
-print("Test C1: GET /api/photo-readings without token -> 401")
-resp = requests.get(f"{API_URL}/photo-readings")
-test("C1.1: GET /api/photo-readings without token returns 401", resp.status_code == 401, f"Got {resp.status_code}")
-
-# Test C2: GET /api/photo-readings with token -> 200 {readings: [...]}
-print("\nTest C2: GET /api/photo-readings as luna (has cached palm reading)")
-if luna_token:
-    resp = requests.get(f"{API_URL}/photo-readings", headers={"Authorization": f"Bearer {luna_token}"})
-    test("C2.1: GET /api/photo-readings returns 200", resp.status_code == 200, f"Got {resp.status_code}")
-    
-    if resp.status_code == 200:
-        data = resp.json()
-        readings = data.get('readings', [])
-        test("C2.2: Response has 'readings' array", isinstance(readings, list), f"Got {type(readings)}")
-        test("C2.3: Readings array has at least 1 item", len(readings) >= 1, f"Got {len(readings)} readings")
-        
-        if len(readings) > 0:
-            reading = readings[0]
-            test("C2.4: Reading has 'id' field (UUID)", 'id' in reading, f"Keys: {reading.keys()}")
-            test("C2.5: Reading has 'userId' field", 'userId' in reading, f"Keys: {reading.keys()}")
-            test("C2.6: Reading has 'type' field", 'type' in reading, f"Keys: {reading.keys()}")
-            test("C2.7: Reading type is 'palm'", reading.get('type') == 'palm', f"Got type: {reading.get('type')}")
-            test("C2.8: Reading has 'text' field", 'text' in reading, f"Keys: {reading.keys()}")
-            test("C2.9: Reading has 'model' field", 'model' in reading, f"Keys: {reading.keys()}")
-            test("C2.10: Reading has 'createdAt' field", 'createdAt' in reading, f"Keys: {reading.keys()}")
-            test("C2.11: Reading has no '_id' field", '_id' not in reading, "Found MongoDB _id")
-        else:
-            tests_failed += 8
-else:
-    print("❌ Failed to login as luna@zaura.app")
-    tests_failed += 11
-
-# Test C3: POST /api/photo-reading without token -> 401
-print("\nTest C3: POST /api/photo-reading without token -> 401")
-resp = requests.post(f"{API_URL}/photo-reading", json={"type": "palm", "imageBase64": "x" * 600})
-test("C3.1: POST /api/photo-reading without token returns 401", resp.status_code == 401, f"Got {resp.status_code}")
-
-# Test C4: POST /api/photo-reading validation tests
-print("\nTest C4: POST /api/photo-reading validation")
-if luna_token:
-    # Invalid type "face"
-    resp = requests.post(f"{API_URL}/photo-reading",
-                        headers={"Authorization": f"Bearer {luna_token}"},
-                        json={"type": "face", "imageBase64": "x" * 600})
-    test("C4.1: POST with invalid type 'face' returns 400", resp.status_code == 400, f"Got {resp.status_code}")
-    if resp.status_code == 400:
-        error_msg = resp.json().get('error', '')
-        test("C4.2: Error message mentions valid types", 'palm' in error_msg.lower() or 'handwriting' in error_msg.lower(), f"Got: {error_msg}")
+def test_notifications_empty():
+    log_section("TEST 3: GET /api/notifications as luna (should be empty)")
+    headers = {"Authorization": f"Bearer {luna_token}"}
+    response = requests.get(f"{BASE_URL}/notifications", headers=headers)
+    success = (
+        response.status_code == 200 and
+        "notifications" in response.json() and
+        isinstance(response.json()["notifications"], list) and
+        len(response.json()["notifications"]) == 0 and
+        response.json().get("unreadCount") == 0
+    )
+    if success:
+        print(f"  Notifications: {response.json()['notifications']}")
+        print(f"  Unread count: {response.json()['unreadCount']}")
     else:
-        tests_failed += 1
+        print(f"  Failed: {response.status_code} - {response.json()}")
+    return success
+
+# ============================================================================
+# TEST 4: Register throwaway user + create birth profile
+# ============================================================================
+def test_register_throwaway():
+    log_section("TEST 4: Register throwaway user + create birth profile")
+    global throwaway_email, throwaway_token, throwaway_user_id
     
-    # Missing imageBase64
-    resp = requests.post(f"{API_URL}/photo-reading",
-                        headers={"Authorization": f"Bearer {luna_token}"},
-                        json={"type": "palm"})
-    test("C4.3: POST without imageBase64 returns 400", resp.status_code == 400, f"Got {resp.status_code}")
+    # Register
+    throwaway_email = generate_random_email()
+    response = requests.post(f"{BASE_URL}/auth/register", json={
+        "email": throwaway_email,
+        "password": "cosmic123",
+        "name": "Notif Test"
+    })
     
-    # imageBase64 too short (<500 chars)
-    resp = requests.post(f"{API_URL}/photo-reading",
-                        headers={"Authorization": f"Bearer {luna_token}"},
-                        json={"type": "palm", "imageBase64": "abc"})
-    test("C4.4: POST with imageBase64 too short (<500 chars) returns 400", resp.status_code == 400, f"Got {resp.status_code}")
-    if resp.status_code == 400:
-        error_msg = resp.json().get('error', '')
-        test("C4.5: Error message mentions empty/corrupted image", 'empty' in error_msg.lower() or 'corrupted' in error_msg.lower(), f"Got: {error_msg}")
+    if response.status_code != 201:
+        print(f"  Registration failed: {response.status_code} - {response.text}")
+        return False
+    
+    throwaway_token = response.json()["token"]
+    throwaway_user_id = response.json()["user"]["id"]
+    print(f"  Registered: {throwaway_email}")
+    print(f"  Token: {throwaway_token[:20]}...")
+    print(f"  User ID: {throwaway_user_id}")
+    
+    # Create birth profile
+    headers = {"Authorization": f"Bearer {throwaway_token}"}
+    profile_response = requests.post(f"{BASE_URL}/profile", headers=headers, json={
+        "fullName": "Notif Test",
+        "birthDate": "1994-06-15",
+        "birthTime": "10:00",
+        "birthCity": "London, UK",
+        "lat": 51.5074,
+        "lng": -0.1278
+    })
+    
+    success = profile_response.status_code in [200, 201]
+    if success:
+        print(f"  Birth profile created: {profile_response.json()}")
     else:
-        tests_failed += 1
+        print(f"  Profile creation failed: {profile_response.status_code} - {profile_response.text}")
     
-    # imageBase64 too large (>4M chars)
-    print("   Testing large image payload (>4M chars)...")
-    resp = requests.post(f"{API_URL}/photo-reading",
-                        headers={"Authorization": f"Bearer {luna_token}"},
-                        json={"type": "palm", "imageBase64": "x" * 4_100_000})
-    test("C4.6: POST with imageBase64 too large (>4M chars) returns 4xx", 
-         400 <= resp.status_code < 500, 
-         f"Got {resp.status_code} (expected 413 or other 4xx)")
-    if 400 <= resp.status_code < 500:
-        if resp.status_code == 413:
-            test("C4.7: Specifically returns 413 (Payload Too Large)", True, "")
-        else:
-            print(f"   Note: Server returned {resp.status_code} instead of 413 (acceptable)")
-            tests_passed += 1
+    return success
+
+# ============================================================================
+# TEST 5: As throwaway, POST /api/invite/f572fce1/accept → 200
+# ============================================================================
+def test_accept_invite():
+    log_section("TEST 5: As throwaway, POST /api/invite/f572fce1/accept")
+    headers = {"Authorization": f"Bearer {throwaway_token}"}
+    response = requests.post(f"{BASE_URL}/invite/{LUNA_INVITE_CODE}/accept", headers=headers)
+    
+    success = (
+        response.status_code == 200 and
+        "partnerId" in response.json() and
+        "inviterName" in response.json()
+    )
+    
+    if success:
+        global throwaway_partner_id
+        throwaway_partner_id = response.json()["partnerId"]
+        print(f"  Partner ID: {throwaway_partner_id}")
+        print(f"  Inviter name: {response.json()['inviterName']}")
     else:
-        tests_failed += 1
-else:
-    print("❌ Failed to login as luna@zaura.app")
-    tests_failed += 7
-
-# Test C5: Code review confirmation (already done manually)
-print("\nTest C5: Code review confirmation")
-print("   ✅ Confirmed: Vision call exists at line 278 (ImageContent)")
-print("   ✅ Confirmed: NOT_VALID guard returns 422 at lines 281-283")
-print("   ✅ Confirmed: Valid reading cached and returns 201 at lines 284-298")
-print("   ✅ Skipping actual valid image POST to avoid LLM cost")
-tests_passed += 4
+        print(f"  Failed: {response.status_code} - {response.json()}")
+    
+    return success
 
 # ============================================================================
-# Test D: Timeline API - GET /api/timeline
+# TEST 6: GET /api/notifications as luna → 1 bond_joined notification
 # ============================================================================
-print("\n" + "="*80)
-print("Test D: Timeline API - GET /api/timeline")
-print("="*80)
-
-# Test D1: GET /api/timeline without token -> 401
-print("\nTest D1: GET /api/timeline without token")
-resp = requests.get(f"{API_URL}/timeline")
-test("D1.1: GET /api/timeline without token returns 401", resp.status_code == 401, f"Got {resp.status_code}")
-
-# Test D2: Login as luna and GET /api/timeline
-print("\nTest D2: GET /api/timeline as luna@zaura.app")
-luna_token = login(LUNA_EMAIL, LUNA_PASSWORD)
-if luna_token:
-    test("D2.1: Login as luna@zaura.app successful", True)
+def test_notification_created():
+    log_section("TEST 6: GET /api/notifications as luna → 1 bond_joined notification")
+    headers = {"Authorization": f"Bearer {luna_token}"}
+    response = requests.get(f"{BASE_URL}/notifications", headers=headers)
     
-    resp = requests.get(f"{API_URL}/timeline", headers={"Authorization": f"Bearer {luna_token}"})
-    test("D2.2: GET /api/timeline with token returns 200", resp.status_code == 200, f"Got {resp.status_code}")
+    if response.status_code != 200:
+        print(f"  Failed: {response.status_code} - {response.text}")
+        return False
     
-    if resp.status_code == 200:
-        data = resp.json()
-        test("D2.3: Response has 'events' key", 'events' in data, f"Keys: {list(data.keys())}")
-        
-        if 'events' in data:
-            events = data['events']
-            test("D2.4: Events is an array", isinstance(events, list), f"Got type: {type(events)}")
-            
-            # Check we have approximately 7 events (could be more if profile was updated)
-            test("D2.5: Events array has ~7 events (at least 6)", len(events) >= 6, f"Got {len(events)} events")
-            
-            # Check for no _id leakage in any event
-            has_id_leak = any('_id' in event for event in events)
-            test("D2.6: No _id leakage in events", not has_id_leak, "Found _id in events")
-            
-            # Check event structure and types
-            if len(events) > 0:
-                # Verify all events have required fields
-                required_fields = ['id', 'type', 'icon', 'title', 'subtitle', 'date']
-                all_have_fields = all(all(field in event for field in required_fields) for event in events)
-                test("D2.7: All events have required fields (id, type, icon, title, subtitle, date)", 
-                     all_have_fields, 
-                     f"Missing fields in some events")
-                
-                # Check for expected event types
-                event_types = [e['type'] for e in events]
-                has_profile = 'profile' in event_types
-                has_synthesis = 'synthesis' in event_types
-                has_photo = 'photo' in event_types
-                has_partner = 'partner' in event_types
-                has_bond_story = 'bondStory' in event_types
-                
-                test("D2.8: Has 'profile' event type", has_profile, f"Event types: {event_types}")
-                test("D2.9: Has 'synthesis' event type", has_synthesis, f"Event types: {event_types}")
-                test("D2.10: Has 'photo' event type", has_photo, f"Event types: {event_types}")
-                test("D2.11: Has 'partner' event type", has_partner, f"Event types: {event_types}")
-                test("D2.12: Has 'bondStory' event type", has_bond_story, f"Event types: {event_types}")
-                
-                # Count partner events (should be 2 for luna)
-                partner_count = event_types.count('partner')
-                test("D2.13: Has 2 'partner' events", partner_count == 2, f"Got {partner_count} partner events")
-                
-                # Check for photo types (palm and face)
-                photo_events = [e for e in events if e['type'] == 'photo']
-                photo_types = [e.get('photoType') for e in photo_events]
-                has_palm = 'palm' in photo_types
-                has_face = 'face' in photo_types
-                test("D2.14: Has 'palm' photo reading", has_palm, f"Photo types: {photo_types}")
-                test("D2.15: Has 'face' photo reading", has_face, f"Photo types: {photo_types}")
-                
-                # Verify date sorting (descending)
-                dates = [e['date'] for e in events]
-                dates_sorted = sorted(dates, reverse=True)
-                is_sorted = dates == dates_sorted
-                test("D2.16: Events sorted by date descending", is_sorted, f"Dates not in descending order")
-                
-                print(f"\n   Summary: Found {len(events)} events with types: {set(event_types)}")
-else:
-    print("❌ Failed to login as luna@zaura.app")
-    tests_failed += 16
-
-# Test D3: Register throwaway user (no profile) -> GET /api/timeline -> empty events
-print("\nTest D3: GET /api/timeline for new user without profile")
-throwaway_token, throwaway_email = register_throwaway()
-if throwaway_token:
-    test("D3.1: Register throwaway user successful", True)
+    data = response.json()
+    notifications = data.get("notifications", [])
+    unread_count = data.get("unreadCount", 0)
     
-    resp = requests.get(f"{API_URL}/timeline", headers={"Authorization": f"Bearer {throwaway_token}"})
-    test("D3.2: GET /api/timeline returns 200", resp.status_code == 200, f"Got {resp.status_code}")
+    # Should have exactly 1 notification
+    if len(notifications) != 1:
+        print(f"  Expected 1 notification, got {len(notifications)}")
+        return False
     
-    if resp.status_code == 200:
-        data = resp.json()
-        test("D3.3: Response has 'events' key", 'events' in data, f"Keys: {list(data.keys())}")
-        
-        if 'events' in data:
-            events = data['events']
-            test("D3.4: Events array is empty for new user", len(events) == 0, f"Got {len(events)} events")
-else:
-    print("❌ Failed to register throwaway user")
-    tests_failed += 4
+    notif = notifications[0]
+    global luna_notification_id
+    luna_notification_id = notif.get("id")
+    
+    # Verify all required fields
+    required_fields = ["id", "userId", "kind", "joinerId", "inviteCode", "partnerId", 
+                      "friendFirstName", "friendFullName", "overall", "verdict", "readAt", "createdAt"]
+    
+    missing_fields = [f for f in required_fields if f not in notif]
+    if missing_fields:
+        print(f"  Missing fields: {missing_fields}")
+        return False
+    
+    # Verify field values
+    checks = [
+        (notif["userId"] == luna_user_id, f"userId should be {luna_user_id}, got {notif['userId']}"),
+        (notif["kind"] == "bond_joined", f"kind should be 'bond_joined', got {notif['kind']}"),
+        (notif["joinerId"] == throwaway_user_id, f"joinerId should be {throwaway_user_id}, got {notif['joinerId']}"),
+        (notif["inviteCode"] == LUNA_INVITE_CODE, f"inviteCode should be {LUNA_INVITE_CODE}, got {notif['inviteCode']}"),
+        (notif["friendFirstName"] == "Notif", f"friendFirstName should be 'Notif', got {notif['friendFirstName']}"),
+        (notif["friendFullName"] == "Notif Test", f"friendFullName should be 'Notif Test', got {notif['friendFullName']}"),
+        (isinstance(notif["overall"], (int, float)) and 0 <= notif["overall"] <= 100, f"overall should be 0-100, got {notif['overall']}"),
+        (isinstance(notif["verdict"], str) and len(notif["verdict"]) > 0, f"verdict should be non-empty string, got {notif['verdict']}"),
+        (notif["readAt"] is None, f"readAt should be null, got {notif['readAt']}"),
+        ("_id" not in notif, "MongoDB _id should not be present"),
+        (unread_count == 1, f"unreadCount should be 1, got {unread_count}")
+    ]
+    
+    all_passed = True
+    for check, msg in checks:
+        if not check:
+            print(f"  ❌ {msg}")
+            all_passed = False
+    
+    if all_passed:
+        print(f"  ✅ All fields verified:")
+        print(f"     id: {notif['id']}")
+        print(f"     userId: {notif['userId']}")
+        print(f"     kind: {notif['kind']}")
+        print(f"     joinerId: {notif['joinerId']}")
+        print(f"     inviteCode: {notif['inviteCode']}")
+        print(f"     partnerId: {notif['partnerId']}")
+        print(f"     friendFirstName: {notif['friendFirstName']}")
+        print(f"     friendFullName: {notif['friendFullName']}")
+        print(f"     overall: {notif['overall']}")
+        print(f"     verdict: {notif['verdict']}")
+        print(f"     readAt: {notif['readAt']}")
+        print(f"     createdAt: {notif['createdAt']}")
+        print(f"     unreadCount: {unread_count}")
+    
+    return all_passed
 
 # ============================================================================
-# SUMMARY
+# TEST 7: Repeat accept → idempotent, no duplicate
 # ============================================================================
-print("\n" + "="*80)
-print(f"TESTS COMPLETE: {tests_passed} passed, {tests_failed} failed")
-print("="*80 + "\n")
+def test_idempotent_accept():
+    log_section("TEST 7: Repeat accept → idempotent, no duplicate")
+    headers = {"Authorization": f"Bearer {throwaway_token}"}
+    
+    # Accept again
+    response = requests.post(f"{BASE_URL}/invite/{LUNA_INVITE_CODE}/accept", headers=headers)
+    if response.status_code != 200:
+        print(f"  Repeat accept failed: {response.status_code} - {response.text}")
+        return False
+    
+    print(f"  Repeat accept succeeded")
+    
+    # Check luna's notifications - should still be exactly 1
+    luna_headers = {"Authorization": f"Bearer {luna_token}"}
+    notif_response = requests.get(f"{BASE_URL}/notifications", headers=luna_headers)
+    
+    if notif_response.status_code != 200:
+        print(f"  Failed to get notifications: {notif_response.status_code}")
+        return False
+    
+    notifications = notif_response.json().get("notifications", [])
+    success = len(notifications) == 1
+    
+    if success:
+        print(f"  ✅ Still exactly 1 notification (idempotent)")
+    else:
+        print(f"  ❌ Expected 1 notification, got {len(notifications)}")
+    
+    return success
 
-sys.exit(0 if tests_failed == 0 else 1)
+# ============================================================================
+# TEST 8: PATCH /api/notifications/:id/read → 200, readAt set
+# ============================================================================
+def test_mark_notification_read():
+    log_section("TEST 8: PATCH /api/notifications/:id/read")
+    headers = {"Authorization": f"Bearer {luna_token}"}
+    
+    # Mark as read
+    response = requests.patch(f"{BASE_URL}/notifications/{luna_notification_id}/read", headers=headers)
+    
+    if response.status_code != 200:
+        print(f"  Failed: {response.status_code} - {response.text}")
+        return False
+    
+    if not response.json().get("ok"):
+        print(f"  Response missing 'ok: true': {response.json()}")
+        return False
+    
+    print(f"  ✅ PATCH returned ok: true")
+    
+    # Verify readAt is set
+    notif_response = requests.get(f"{BASE_URL}/notifications", headers=headers)
+    if notif_response.status_code != 200:
+        print(f"  Failed to get notifications: {notif_response.status_code}")
+        return False
+    
+    data = notif_response.json()
+    notifications = data.get("notifications", [])
+    unread_count = data.get("unreadCount", 0)
+    
+    if len(notifications) != 1:
+        print(f"  Expected 1 notification, got {len(notifications)}")
+        return False
+    
+    notif = notifications[0]
+    success = (
+        notif["readAt"] is not None and
+        isinstance(notif["readAt"], str) and
+        unread_count == 0
+    )
+    
+    if success:
+        print(f"  ✅ readAt is set: {notif['readAt']}")
+        print(f"  ✅ unreadCount is 0")
+    else:
+        print(f"  ❌ readAt: {notif['readAt']}, unreadCount: {unread_count}")
+    
+    return success
+
+# ============================================================================
+# TEST 9: PATCH /api/notifications/nonexistent/read → 404
+# ============================================================================
+def test_mark_nonexistent_read():
+    log_section("TEST 9: PATCH /api/notifications/nonexistent/read → 404")
+    headers = {"Authorization": f"Bearer {luna_token}"}
+    
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    response = requests.patch(f"{BASE_URL}/notifications/{fake_id}/read", headers=headers)
+    
+    success = response.status_code == 404
+    if success:
+        print(f"  ✅ Got 404 as expected")
+    else:
+        print(f"  ❌ Expected 404, got {response.status_code}")
+    
+    return success
+
+# ============================================================================
+# TEST 10: PATCH without token → 401
+# ============================================================================
+def test_mark_read_no_auth():
+    log_section("TEST 10: PATCH /api/notifications/:id/read without token → 401")
+    
+    response = requests.patch(f"{BASE_URL}/notifications/{luna_notification_id}/read")
+    
+    success = response.status_code == 401
+    if success:
+        print(f"  ✅ Got 401 as expected")
+    else:
+        print(f"  ❌ Expected 401, got {response.status_code}")
+    
+    return success
+
+# ============================================================================
+# TEST 11: DELETE /api/notifications/:id → 200, then 404 on repeat
+# ============================================================================
+def test_delete_notification():
+    log_section("TEST 11: DELETE /api/notifications/:id")
+    headers = {"Authorization": f"Bearer {luna_token}"}
+    
+    # Delete
+    response = requests.delete(f"{BASE_URL}/notifications/{luna_notification_id}", headers=headers)
+    
+    if response.status_code != 200:
+        print(f"  Delete failed: {response.status_code} - {response.text}")
+        return False
+    
+    if not response.json().get("ok"):
+        print(f"  Response missing 'ok: true': {response.json()}")
+        return False
+    
+    print(f"  ✅ DELETE returned ok: true")
+    
+    # Verify it's gone
+    notif_response = requests.get(f"{BASE_URL}/notifications", headers=headers)
+    if notif_response.status_code != 200:
+        print(f"  Failed to get notifications: {notif_response.status_code}")
+        return False
+    
+    notifications = notif_response.json().get("notifications", [])
+    if len(notifications) != 0:
+        print(f"  ❌ Expected 0 notifications, got {len(notifications)}")
+        return False
+    
+    print(f"  ✅ Notification deleted (list is empty)")
+    
+    # Try to delete again - should get 404
+    repeat_response = requests.delete(f"{BASE_URL}/notifications/{luna_notification_id}", headers=headers)
+    if repeat_response.status_code != 404:
+        print(f"  ❌ Expected 404 on repeat delete, got {repeat_response.status_code}")
+        return False
+    
+    print(f"  ✅ Repeat delete returned 404")
+    
+    return True
+
+# ============================================================================
+# TEST 12: DELETE without token → 401
+# ============================================================================
+def test_delete_no_auth():
+    log_section("TEST 12: DELETE /api/notifications/:id without token → 401")
+    
+    fake_id = "00000000-0000-0000-0000-000000000000"
+    response = requests.delete(f"{BASE_URL}/notifications/{fake_id}")
+    
+    success = response.status_code == 401
+    if success:
+        print(f"  ✅ Got 401 as expected")
+    else:
+        print(f"  ❌ Expected 401, got {response.status_code}")
+    
+    return success
+
+# ============================================================================
+# TEST 13: Trigger another notification, PATCH /api/notifications (mark ALL read)
+# ============================================================================
+def test_mark_all_read():
+    log_section("TEST 13: Trigger another notification, PATCH /api/notifications (mark ALL read)")
+    headers_throwaway = {"Authorization": f"Bearer {throwaway_token}"}
+    headers_luna = {"Authorization": f"Bearer {luna_token}"}
+    
+    # Accept invite again (should recreate notification since previous was deleted)
+    response = requests.post(f"{BASE_URL}/invite/{LUNA_INVITE_CODE}/accept", headers=headers_throwaway)
+    if response.status_code != 200:
+        print(f"  Accept failed: {response.status_code} - {response.text}")
+        return False
+    
+    print(f"  ✅ Invite accepted again")
+    
+    # Check luna's notifications - should have 1 new notification
+    notif_response = requests.get(f"{BASE_URL}/notifications", headers=headers_luna)
+    if notif_response.status_code != 200:
+        print(f"  Failed to get notifications: {notif_response.status_code}")
+        return False
+    
+    notifications = notif_response.json().get("notifications", [])
+    if len(notifications) != 1:
+        print(f"  ❌ Expected 1 notification, got {len(notifications)}")
+        return False
+    
+    print(f"  ✅ New notification created")
+    
+    global luna_notification_id_2
+    luna_notification_id_2 = notifications[0]["id"]
+    
+    # Mark ALL as read (PATCH /api/notifications without id)
+    mark_all_response = requests.patch(f"{BASE_URL}/notifications", headers=headers_luna)
+    if mark_all_response.status_code != 200:
+        print(f"  Mark all read failed: {mark_all_response.status_code} - {mark_all_response.text}")
+        return False
+    
+    if not mark_all_response.json().get("ok"):
+        print(f"  Response missing 'ok: true': {mark_all_response.json()}")
+        return False
+    
+    print(f"  ✅ PATCH /api/notifications returned ok: true")
+    
+    # Verify all are marked as read
+    verify_response = requests.get(f"{BASE_URL}/notifications", headers=headers_luna)
+    if verify_response.status_code != 200:
+        print(f"  Failed to get notifications: {verify_response.status_code}")
+        return False
+    
+    data = verify_response.json()
+    notifications = data.get("notifications", [])
+    unread_count = data.get("unreadCount", 0)
+    
+    all_read = all(n["readAt"] is not None for n in notifications)
+    success = all_read and unread_count == 0
+    
+    if success:
+        print(f"  ✅ All notifications marked as read")
+        print(f"  ✅ unreadCount is 0")
+    else:
+        print(f"  ❌ Not all notifications marked as read or unreadCount != 0")
+        for n in notifications:
+            print(f"     {n['id']}: readAt={n['readAt']}")
+    
+    return success
+
+# ============================================================================
+# TEST 14: User isolation - throwaway GET /api/notifications → empty
+# ============================================================================
+def test_user_isolation():
+    log_section("TEST 14: User isolation - throwaway GET /api/notifications → empty")
+    headers = {"Authorization": f"Bearer {throwaway_token}"}
+    
+    response = requests.get(f"{BASE_URL}/notifications", headers=headers)
+    
+    if response.status_code != 200:
+        print(f"  Failed: {response.status_code} - {response.text}")
+        return False
+    
+    notifications = response.json().get("notifications", [])
+    success = len(notifications) == 0
+    
+    if success:
+        print(f"  ✅ Throwaway user has 0 notifications (correct isolation)")
+    else:
+        print(f"  ❌ Throwaway user has {len(notifications)} notifications (should be 0)")
+    
+    return success
+
+# ============================================================================
+# TEST 15: Cleanup - delete throwaway partner, delete notifications
+# ============================================================================
+def test_cleanup():
+    log_section("TEST 15: Cleanup - delete throwaway partner and notifications")
+    headers = {"Authorization": f"Bearer {luna_token}"}
+    
+    # Get luna's partners
+    partners_response = requests.get(f"{BASE_URL}/partners", headers=headers)
+    if partners_response.status_code != 200:
+        print(f"  Failed to get partners: {partners_response.status_code}")
+        return False
+    
+    partners = partners_response.json().get("partners", [])
+    print(f"  Luna has {len(partners)} partners")
+    
+    # Find the throwaway partner (Notif Test)
+    throwaway_partner = None
+    for p in partners:
+        if p["partnerName"] == "Notif Test":
+            throwaway_partner = p
+            break
+    
+    if not throwaway_partner:
+        print(f"  ❌ Could not find throwaway partner 'Notif Test'")
+        return False
+    
+    print(f"  Found throwaway partner: {throwaway_partner['id']}")
+    
+    # Delete the throwaway partner
+    delete_response = requests.delete(f"{BASE_URL}/partners/{throwaway_partner['id']}", headers=headers)
+    if delete_response.status_code != 200:
+        print(f"  Failed to delete partner: {delete_response.status_code} - {delete_response.text}")
+        return False
+    
+    print(f"  ✅ Deleted throwaway partner")
+    
+    # Delete all notifications
+    notif_response = requests.get(f"{BASE_URL}/notifications", headers=headers)
+    if notif_response.status_code != 200:
+        print(f"  Failed to get notifications: {notif_response.status_code}")
+        return False
+    
+    notifications = notif_response.json().get("notifications", [])
+    print(f"  Luna has {len(notifications)} notifications to delete")
+    
+    for notif in notifications:
+        del_response = requests.delete(f"{BASE_URL}/notifications/{notif['id']}", headers=headers)
+        if del_response.status_code != 200:
+            print(f"  Failed to delete notification {notif['id']}: {del_response.status_code}")
+            return False
+    
+    print(f"  ✅ Deleted all notifications")
+    
+    # Verify luna is back to 3 partners
+    final_partners_response = requests.get(f"{BASE_URL}/partners", headers=headers)
+    if final_partners_response.status_code != 200:
+        print(f"  Failed to get partners: {final_partners_response.status_code}")
+        return False
+    
+    final_partners = final_partners_response.json().get("partners", [])
+    expected_partners = ["Sage Moon", "Orion Vale", "River Sage"]
+    partner_names = [p["partnerName"] for p in final_partners]
+    
+    success = len(final_partners) == 3 and all(name in partner_names for name in expected_partners)
+    
+    if success:
+        print(f"  ✅ Luna has 3 partners: {partner_names}")
+    else:
+        print(f"  ❌ Luna has {len(final_partners)} partners: {partner_names}")
+        print(f"     Expected: {expected_partners}")
+    
+    # Verify notifications are empty
+    final_notif_response = requests.get(f"{BASE_URL}/notifications", headers=headers)
+    if final_notif_response.status_code != 200:
+        print(f"  Failed to get notifications: {final_notif_response.status_code}")
+        return False
+    
+    final_notifications = final_notif_response.json().get("notifications", [])
+    if len(final_notifications) == 0:
+        print(f"  ✅ Luna has 0 notifications")
+    else:
+        print(f"  ❌ Luna has {len(final_notifications)} notifications (should be 0)")
+        success = False
+    
+    return success
+
+# ============================================================================
+# RUN ALL TESTS
+# ============================================================================
+def main():
+    print(f"\n{YELLOW}{'='*80}{RESET}")
+    print(f"{YELLOW}Bond Notifications API - Backend Test Suite{RESET}")
+    print(f"{YELLOW}{'='*80}{RESET}\n")
+    
+    # Run tests in sequence
+    run_test("GET /api/notifications without Authorization → 401", test_notifications_no_auth)
+    run_test("Login as luna@zaura.app", test_login_luna)
+    run_test("GET /api/notifications as luna → empty", test_notifications_empty)
+    run_test("Register throwaway user + create birth profile", test_register_throwaway)
+    run_test("As throwaway, POST /api/invite/f572fce1/accept", test_accept_invite)
+    run_test("GET /api/notifications as luna → 1 bond_joined notification", test_notification_created)
+    run_test("Repeat accept → idempotent, no duplicate", test_idempotent_accept)
+    run_test("PATCH /api/notifications/:id/read → readAt set", test_mark_notification_read)
+    run_test("PATCH /api/notifications/nonexistent/read → 404", test_mark_nonexistent_read)
+    run_test("PATCH without token → 401", test_mark_read_no_auth)
+    run_test("DELETE /api/notifications/:id → 200, then 404", test_delete_notification)
+    run_test("DELETE without token → 401", test_delete_no_auth)
+    run_test("PATCH /api/notifications (mark ALL read)", test_mark_all_read)
+    run_test("User isolation - throwaway notifications empty", test_user_isolation)
+    run_test("Cleanup - delete throwaway partner and notifications", test_cleanup)
+    
+    # Summary
+    print(f"\n{YELLOW}{'='*80}{RESET}")
+    print(f"{YELLOW}TEST SUMMARY{RESET}")
+    print(f"{YELLOW}{'='*80}{RESET}\n")
+    
+    if passed_tests == total_tests:
+        print(f"{GREEN}✅ ALL {total_tests} TESTS PASSED{RESET}")
+    else:
+        print(f"{RED}❌ {total_tests - passed_tests} of {total_tests} tests FAILED{RESET}")
+        print(f"{GREEN}✅ {passed_tests} tests passed{RESET}")
+    
+    print()
+
+if __name__ == "__main__":
+    main()

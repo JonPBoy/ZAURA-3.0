@@ -18,7 +18,7 @@ async function getDb() {
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 const json = (data, status = 200) => NextResponse.json(data, { status, headers: CORS });
@@ -132,6 +132,23 @@ export async function GET(request, { params }) {
       const readings = await database.collection('photo_readings')
         .find({ userId: user.id }, { projection: { _id: 0 } }).toArray();
       return json({ readings });
+    }
+
+    if (route === 'notifications') {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      const notifs = await database.collection('notifications')
+        .find({ userId: user.id }, { projection: { _id: 0 } })
+        .toArray();
+      // unread first (readAt null), then most recent first
+      notifs.sort((a, b) => {
+        const au = a.readAt ? 1 : 0;
+        const bu = b.readAt ? 1 : 0;
+        if (au !== bu) return au - bu;
+        return new Date(b.createdAt) - new Date(a.createdAt);
+      });
+      const unreadCount = notifs.filter((n) => !n.readAt).length;
+      return json({ notifications: notifs, unreadCount });
     }
 
     if (route === 'oracle') {
@@ -334,11 +351,32 @@ export async function POST(request, { params }) {
       };
 
       const friendSide = await upsertPartner(user.id, inviterProfile);   // inviter appears in friend's bonds
-      await upsertPartner(inv.userId, friendProfile);                    // friend appears in inviter's bonds
+      const inviterSide = await upsertPartner(inv.userId, friendProfile); // friend appears in inviter's bonds
       await database.collection('invites').updateOne(
         { code: path[1] },
         { $addToSet: { usedBy: { userId: user.id, name: friendProfile.fullName, at: new Date().toISOString() } } }
       );
+
+      // Notify the inviter that a friend joined through their link (idempotent per invite+joiner)
+      const notifKey = { userId: inv.userId, kind: 'bond_joined', joinerId: user.id, inviteCode: path[1] };
+      const existingNotif = await database.collection('notifications').findOne(notifKey);
+      if (!existingNotif) {
+        await database.collection('notifications').insertOne({
+          id: uuidv4(),
+          userId: inv.userId,
+          kind: 'bond_joined',
+          joinerId: user.id,
+          inviteCode: path[1],
+          partnerId: inviterSide.id,
+          friendFirstName: friendProfile.fullName.split(' ')[0],
+          friendFullName: friendProfile.fullName,
+          overall: inviterSide.overall,
+          verdict: inviterSide.verdict,
+          readAt: null,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
       return json({ partnerId: friendSide.id, inviterName: inviterProfile.fullName });
     }
 
@@ -630,9 +668,61 @@ export async function DELETE(request, { params }) {
       return json({ ok: true });
     }
 
+    if (path[0] === 'notifications' && path[1]) {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      const result = await database.collection('notifications').deleteOne({ id: path[1], userId: user.id });
+      if (result.deletedCount === 0) return json({ error: 'Notification not found' }, 404);
+      return json({ ok: true });
+    }
+
     return json({ error: `Route not found: ${route}` }, 404);
   } catch (e) {
     console.error('DELETE error:', e);
+    return json({ error: 'Internal server error' }, 500);
+  }
+}
+
+export async function PATCH(request, { params }) {
+  try {
+    const { path = [] } = await params;
+    const database = await getDb();
+
+    if (path[0] === 'notifications' && path[1]) {
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      // path[2] === 'read' marks as read; otherwise support body {readAt: null} to un-read
+      const body = await request.json().catch(() => ({}));
+      let update;
+      if (path[2] === 'read' || body.read === true) {
+        update = { readAt: new Date().toISOString() };
+      } else if (body.read === false) {
+        update = { readAt: null };
+      } else {
+        update = { readAt: new Date().toISOString() };
+      }
+      const result = await database.collection('notifications').updateOne(
+        { id: path[1], userId: user.id },
+        { $set: update }
+      );
+      if (result.matchedCount === 0) return json({ error: 'Notification not found' }, 404);
+      return json({ ok: true });
+    }
+
+    if (path[0] === 'notifications' && path.length === 1) {
+      // mark ALL as read
+      const user = await getAuthUser(request);
+      if (!user) return json({ error: 'Unauthorized' }, 401);
+      await database.collection('notifications').updateMany(
+        { userId: user.id, readAt: null },
+        { $set: { readAt: new Date().toISOString() } }
+      );
+      return json({ ok: true });
+    }
+
+    return json({ error: 'Route not found' }, 404);
+  } catch (e) {
+    console.error('PATCH error:', e);
     return json({ error: 'Internal server error' }, 500);
   }
 }
