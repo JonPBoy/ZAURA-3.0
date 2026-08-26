@@ -11,8 +11,8 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${cormorant.variable} ${inter.variable} font-sans antialiased`} style={{ background: '#070616', color: '#e8e6f5' }}>
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body className={`${cormorant.variable} ${inter.variable} font-sans antialiased`} style={{ background: '#070616', color: '#e8e6f5' }} suppressHydrationWarning>
         {children}
       </body>
     </html>
