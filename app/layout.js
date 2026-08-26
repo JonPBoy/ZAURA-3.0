@@ -7,6 +7,11 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-body' });
 export const metadata = {
   title: 'Zaura — Your Cosmic Self, Revealed',
   description: 'A mystical self-discovery experience: 20 esoteric modalities computed from your birth moment — astrology, numerology, human design, tarot and beyond.',
+  icons: {
+    icon: '/zaura-logo.webp',
+    shortcut: '/zaura-logo.webp',
+    apple: '/zaura-logo.webp',
+  },
 };
 
 export default function RootLayout({ children }) {

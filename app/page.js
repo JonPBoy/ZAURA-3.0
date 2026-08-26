@@ -56,6 +56,23 @@ const GradientText = ({ children, className = '' }) => (
   <span className={`bg-gradient-to-r from-violet-300 via-fuchsia-300 to-amber-200 bg-clip-text text-transparent ${className}`}>{children}</span>
 );
 
+const Logo = ({ size = 'header', className = '' }) => {
+  const sizes = {
+    hero: 'h-14 sm:h-16',
+    dashboard: 'h-8 sm:h-10',
+    header: 'h-6 sm:h-7',
+  };
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src="/zaura-logo.webp"
+      alt="Zaura"
+      draggable={false}
+      className={`${sizes[size] || sizes.header} w-auto object-contain select-none drop-shadow-[0_0_18px_rgba(139,92,246,0.35)] ${className}`}
+    />
+  );
+};
+
 const CAT_COLORS = {
   Astrology: 'from-violet-500/20 to-indigo-500/10 border-violet-400/20',
   Numbers: 'from-amber-500/15 to-orange-500/10 border-amber-400/20',
@@ -118,11 +135,9 @@ const AuthView = ({ onAuth, inviteInfo }) => {
       <Stars />
       <GlassCard className="relative w-full max-w-md p-8 sm:p-10">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 mb-3">
+          <div className="inline-flex items-center gap-3 mb-3">
             <Moon className="w-5 h-5 text-violet-300" />
-            <h1 className="text-4xl tracking-[0.25em] font-semibold" style={{ fontFamily: 'var(--font-mystic)' }}>
-              <GradientText>ZAURA</GradientText>
-            </h1>
+            <Logo size="hero" />
             <Star className="w-5 h-5 text-amber-200" />
           </div>
           <p className="text-sm text-violet-200/60">Your cosmic self, revealed through 20 mystical modalities</p>
@@ -749,9 +764,7 @@ const PhotoReadingView = ({ token, type, onBack }) => {
           <button data-testid="photo-back-btn" onClick={() => { stopCamera(); onBack(); }} className="flex items-center gap-1.5 text-sm text-violet-200/70 hover:text-white transition-colors">
             <ChevronLeft className="w-4 h-4" /> Dashboard
           </button>
-          <span className="text-lg tracking-[0.2em]" style={{ fontFamily: 'var(--font-mystic)' }}>
-            <GradientText>ZAURA</GradientText>
-          </span>
+          <Logo size="header" />
           <span className="w-24" />
         </div>
       </header>
@@ -870,9 +883,7 @@ const TimelineView = ({ token, profile, onBack, onJump }) => {
           <button data-testid="timeline-back-btn" onClick={onBack} className="flex items-center gap-1.5 text-sm text-violet-200/70 hover:text-white transition-colors">
             <ChevronLeft className="w-4 h-4" /> Dashboard
           </button>
-          <span className="text-lg tracking-[0.2em]" style={{ fontFamily: 'var(--font-mystic)' }}>
-            <GradientText>ZAURA</GradientText>
-          </span>
+          <Logo size="header" />
           <span className="w-24" />
         </div>
       </header>
@@ -1312,9 +1323,7 @@ const CompatibilityView = ({ profile, token, onBack, initialPartnerId }) => {
           <button data-testid="compat-back-btn" onClick={onBack} className="flex items-center gap-1.5 text-sm text-violet-200/70 hover:text-white transition-colors">
             <ChevronLeft className="w-4 h-4" /> Dashboard
           </button>
-          <span className="text-lg tracking-[0.2em]" style={{ fontFamily: 'var(--font-mystic)' }}>
-            <GradientText>ZAURA</GradientText>
-          </span>
+          <Logo size="header" />
           <span className="w-24" />
         </div>
       </header>
@@ -1533,9 +1542,7 @@ const Dashboard = ({ user, token, profile, modalities, summary, onOpen, onEdit, 
         <div className="relative max-w-6xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Moon className="w-5 h-5 text-violet-300" />
-            <span className="text-2xl tracking-[0.25em] font-semibold" style={{ fontFamily: 'var(--font-mystic)' }}>
-              <GradientText>ZAURA</GradientText>
-            </span>
+            <Logo size="dashboard" />
           </div>
           <div className="flex items-center gap-3">
             <button data-testid="edit-profile-btn" onClick={onEdit} className="flex items-center gap-1.5 text-xs text-violet-200/60 hover:text-violet-100 transition-colors rounded-lg border border-white/10 px-3 py-1.5">
@@ -1717,9 +1724,7 @@ const DetailView = ({ modalities, activeId, onSelect, onBack }) => {
           <button data-testid="back-to-dashboard-btn" onClick={onBack} className="flex items-center gap-1.5 text-sm text-violet-200/70 hover:text-white transition-colors">
             <ChevronLeft className="w-4 h-4" /> Dashboard
           </button>
-          <span className="text-lg tracking-[0.2em]" style={{ fontFamily: 'var(--font-mystic)' }}>
-            <GradientText>ZAURA</GradientText>
-          </span>
+          <Logo size="header" />
           <button className="lg:hidden text-violet-200/70" onClick={() => setNavOpen(!navOpen)} data-testid="detail-nav-toggle">
             {navOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
