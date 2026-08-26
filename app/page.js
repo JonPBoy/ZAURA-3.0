@@ -1958,41 +1958,112 @@ const BondNotifications = ({ token, onOpenBond }) => {
 
   return (
     <div className="mb-6 space-y-2" data-testid="bond-notifications">
-      {unread.map((n) => (
-        <div
-          key={n.id}
-          data-testid={`bond-notif-${n.id}`}
-          role="button"
-          tabIndex={0}
-          onClick={() => !busy && open(n)}
-          onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !busy) open(n); }}
-          className="group w-full text-left rounded-2xl border border-fuchsia-400/40 bg-gradient-to-r from-fuchsia-500/15 via-violet-500/10 to-amber-500/10 p-4 sm:p-5 shadow-[0_0_40px_rgba(200,80,220,0.18)] hover:shadow-[0_0_60px_rgba(200,80,220,0.28)] transition-shadow cursor-pointer"
-        >
-          <div className="flex items-start gap-3">
-            <Sparkles className="w-5 h-5 text-fuchsia-200 mt-0.5 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-fuchsia-50">
-                {n.friendFirstName} joined through your invite &mdash; your bond is ready
-              </p>
-              <p className="text-xs text-violet-100/70 mt-0.5">
-                {n.overall != null && (
-                  <>Bond score {n.overall}/100{n.verdict ? ` \u00b7 ${n.verdict}` : ''} &middot; </>
-                )}
-                Tap to open your reciprocal reading with {n.friendFullName || n.friendFirstName}
-              </p>
+      {unread.map((n) => {
+        const score = typeof n.overall === 'number' ? Math.max(0, Math.min(100, Math.round(n.overall))) : null;
+        // Tier colors (arc gradient stops + text)
+        const tier = score == null ? 'unknown'
+          : score >= 85 ? 'radiant'
+          : score >= 70 ? 'strong'
+          : score >= 55 ? 'growing'
+          : 'testing';
+        const tierColor = {
+          radiant: { from: '#fbbf24', to: '#f472b6', text: 'text-amber-100', ring: 'ring-amber-300/50' },
+          strong:  { from: '#e879f9', to: '#a78bfa', text: 'text-fuchsia-100', ring: 'ring-fuchsia-300/50' },
+          growing: { from: '#a78bfa', to: '#7dd3fc', text: 'text-violet-100', ring: 'ring-violet-300/50' },
+          testing: { from: '#7dd3fc', to: '#818cf8', text: 'text-sky-100', ring: 'ring-sky-300/50' },
+          unknown: { from: '#a78bfa', to: '#f472b6', text: 'text-violet-100', ring: 'ring-violet-300/50' },
+        }[tier];
+        // SVG donut math
+        const size = 56, stroke = 6;
+        const radius = (size - stroke) / 2;
+        const circ = 2 * Math.PI * radius;
+        const dash = score == null ? 0 : circ * (score / 100);
+        const gradId = `bond-grad-${n.id}`;
+
+        return (
+          <div
+            key={n.id}
+            data-testid={`bond-notif-${n.id}`}
+            role="button"
+            tabIndex={0}
+            onClick={() => !busy && open(n)}
+            onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && !busy) open(n); }}
+            className="group w-full text-left rounded-2xl border border-fuchsia-400/40 bg-gradient-to-r from-fuchsia-500/15 via-violet-500/10 to-amber-500/10 p-4 sm:p-5 shadow-[0_0_40px_rgba(200,80,220,0.18)] hover:shadow-[0_0_60px_rgba(200,80,220,0.28)] transition-shadow cursor-pointer"
+          >
+            <div className="flex items-center gap-4">
+              {/* Mini radial bond score */}
+              <div
+                className={`relative shrink-0 rounded-full ring-1 ${tierColor.ring} p-0.5 bg-white/5`}
+                data-testid={`bond-notif-radial-${n.id}`}
+                title={score != null ? `Bond score ${score}/100${n.verdict ? ' \u00b7 ' + n.verdict : ''}` : 'Bond'}
+              >
+                <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="block">
+                  <defs>
+                    <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stopColor={tierColor.from} />
+                      <stop offset="100%" stopColor={tierColor.to} />
+                    </linearGradient>
+                  </defs>
+                  {/* track */}
+                  <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth={stroke} />
+                  {/* progress arc */}
+                  {score != null && (
+                    <circle
+                      cx={size / 2}
+                      cy={size / 2}
+                      r={radius}
+                      fill="none"
+                      stroke={`url(#${gradId})`}
+                      strokeWidth={stroke}
+                      strokeLinecap="round"
+                      strokeDasharray={`${dash} ${circ}`}
+                      transform={`rotate(-90 ${size / 2} ${size / 2})`}
+                      style={{ transition: 'stroke-dasharray 600ms ease-out' }}
+                    />
+                  )}
+                  {/* center label */}
+                  {score != null ? (
+                    <>
+                      <text x="50%" y="46%" textAnchor="middle" dominantBaseline="middle" className={tierColor.text} style={{ fontSize: 18, fontWeight: 600, fill: 'currentColor', fontFamily: 'var(--font-mystic)' }}>{score}</text>
+                      <text x="50%" y="72%" textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 6.5, fill: 'rgba(230,220,255,0.55)', letterSpacing: 1 }}>BOND</text>
+                    </>
+                  ) : (
+                    <text x="50%" y="55%" textAnchor="middle" dominantBaseline="middle" style={{ fontSize: 22, fill: 'rgba(230,220,255,0.8)' }}>&#10024;</text>
+                  )}
+                </svg>
+                <span className="absolute -top-1 -right-1 rounded-full bg-fuchsia-500 text-[9px] w-4 h-4 flex items-center justify-center text-white shadow-[0_0_10px_rgba(232,121,249,0.9)] animate-pulse">
+                  <Sparkles className="w-2.5 h-2.5" />
+                </span>
+              </div>
+
+              {/* Text */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-fuchsia-50">
+                  {n.friendFirstName} joined through your invite &mdash; your bond is ready
+                </p>
+                <p className="text-xs text-violet-100/70 mt-0.5 flex flex-wrap items-center gap-1.5">
+                  {n.verdict && (
+                    <span className={`inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-widest ${tierColor.text}`}>
+                      {n.verdict}
+                    </span>
+                  )}
+                  <span>Tap to open your reciprocal reading with {n.friendFullName || n.friendFirstName}</span>
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={(e) => dismiss(e, n)}
+                data-testid={`bond-notif-dismiss-${n.id}`}
+                className="text-fuchsia-200/50 hover:text-fuchsia-100 transition-colors self-start"
+                aria-label="Dismiss notification"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={(e) => dismiss(e, n)}
-              data-testid={`bond-notif-dismiss-${n.id}`}
-              className="text-fuchsia-200/50 hover:text-fuchsia-100 transition-colors mt-0.5"
-              aria-label="Dismiss notification"
-            >
-              <X className="w-4 h-4" />
-            </button>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };
